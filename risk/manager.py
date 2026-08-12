@@ -163,18 +163,19 @@ class RiskManager:
                         return decision
 
         # ──────────────────────────────────────────────
-        # Rule 6: Absolute Position Quantity Cap (Isolated Risk Boundary)
+        # Rule 6: Dynamic Position Quantity Cap (Scaled to Account Equity)
         # ──────────────────────────────────────────────
-        max_allowed_qty = getattr(self.config, "max_position_qty", 0.10)
-        if order.quantity > max_allowed_qty:
+        # Base limit: 0.10 lots per $5,000 equity (scales up as account compounds)
+        dynamic_max_qty = max(0.10, round((account_state.current_equity / 5000.0) * 0.10, 2))
+        if order.quantity > dynamic_max_qty:
             decision = RiskDecision.approve(
-                f"Position size {order.quantity} exceeded hard isolated limit {max_allowed_qty}. Capped to {max_allowed_qty} lots."
+                f"Position size {order.quantity} exceeded dynamic equity limit {dynamic_max_qty}. Capped to {dynamic_max_qty} lots."
             )
-            decision.adjusted_size = max_allowed_qty
+            decision.adjusted_size = dynamic_max_qty
             log_event(
                 self.logger, "warning", LogTag.RISK,
-                f"Position size capped to hard isolated limit: {order.quantity} → {max_allowed_qty}",
-                {"symbol": order.symbol, "max_allowed": max_allowed_qty},
+                f"Position size capped to dynamic equity limit: {order.quantity} → {dynamic_max_qty}",
+                {"symbol": order.symbol, "equity": account_state.current_equity, "max_allowed": dynamic_max_qty},
             )
             return decision
 

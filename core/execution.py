@@ -155,33 +155,6 @@ def run_strategy_cycle():
     # 3. MTF Confluence: Both Macro (1D) AND Fast Intraday (5m HMA-20) MUST BE BULLISH
     is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish
 
-    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 8.0
-    # Wide Volatility Trailing Stop Distance: $35.00 to $50.00 Gold price points for massive breathing room
-    price_stop_distance = max(35.0, min(50.0, round(current_atr * 5.0, 2)))
-
-    contract_size = 100.0
-    raw_qty = round(MAX_LOSS_DOLLARS / (price_stop_distance * contract_size), 2)
-    # Dynamic Lot Sizing bounded strictly between 0.01 and 0.10 lots
-    calculated_qty = max(0.01, min(0.10, raw_qty))
-    actual_max_risk = calculated_qty * contract_size * price_stop_distance
-
-    print(f"--- Fast MTF Confluence Evaluation for {SYMBOL} ---")
-    print(f"Current Price: ${intraday_close:.2f}")
-    print(f"Macro Trend (1D HMA-100): {'BULLISH 🟢' if is_macro_bullish else 'BEARISH 🔴'}")
-    print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
-    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE ⏸️'}")
-    print(f"5m ATR Volatility: ${current_atr:.2f}")
-    print(f"Trailing Stop Distance: ${price_stop_distance:.2f} price points")
-    print(f"Dynamically Scaled Size: {calculated_qty} lots")
-    print(f"Strict Max Dollar Risk: ${actual_max_risk:.2f} (Capped at ${MAX_LOSS_DOLLARS:.2f})")
-
-    positions = tl.get_all_positions()
-    has_open_position = False
-    if hasattr(positions, "empty"):
-        has_open_position = not positions.empty
-    elif isinstance(positions, dict):
-        has_open_position = len(positions.get("positions", [])) > 0
-
     try:
         acc_state = tl.get_account_state()
         if hasattr(acc_state, "iloc") and len(acc_state) > 0:
@@ -196,6 +169,36 @@ def run_strategy_cycle():
     except Exception:
         cash_balance = 4955.18
         today_net = 0.0
+
+    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 8.0
+    # Wide Volatility Trailing Stop Distance: $35.00 to $50.00 Gold price points for massive breathing room
+    price_stop_distance = max(35.0, min(50.0, round(current_atr * 5.0, 2)))
+
+    # Dynamic Risk Budget based on Account Equity (1.0% per trade, minimum $50.00)
+    risk_budget_dollars = max(MAX_LOSS_DOLLARS, round(cash_balance * 0.01, 2))
+
+    contract_size = 100.0
+    # Dynamic Lot Sizing: Scaled to account size (minimum 0.01 lots, scales beyond 0.10 lots as account compounds!)
+    calculated_qty = max(0.01, round(risk_budget_dollars / (price_stop_distance * contract_size), 2))
+    actual_max_risk = calculated_qty * contract_size * price_stop_distance
+
+    print(f"--- Fast MTF Confluence Evaluation for {SYMBOL} ---")
+    print(f"Current Price: ${intraday_close:.2f}")
+    print(f"Macro Trend (1D HMA-100): {'BULLISH 🟢' if is_macro_bullish else 'BEARISH 🔴'}")
+    print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
+    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE ⏸️'}")
+    print(f"5m ATR Volatility: ${current_atr:.2f}")
+    print(f"Trailing Stop Distance: ${price_stop_distance:.2f} price points")
+    print(f"Account Equity: ${cash_balance:,.2f} | Dynamic Risk Budget (1%): ${risk_budget_dollars:.2f}")
+    print(f"Dynamically Scaled Size: {calculated_qty} lots")
+    print(f"Actual Max Dollar Risk: ${actual_max_risk:.2f}")
+
+    positions = tl.get_all_positions()
+    has_open_position = False
+    if hasattr(positions, "empty"):
+        has_open_position = not positions.empty
+    elif isinstance(positions, dict):
+        has_open_position = len(positions.get("positions", [])) > 0
 
     print(f"Account Balance: ${cash_balance:,.2f} | Today PnL: ${today_net:,.2f}")
 
