@@ -229,7 +229,14 @@ def run_strategy_cycle():
         min_probability_threshold=75
     )
 
+    EXECUTION_MODE = os.getenv("EXECUTION_MODE", "MAX_PROFIT").upper()
+
+    # Short Scalp Confluence Calculation (Intraday Bearish + WaveTrend Negative + MFI Negative)
+    is_intraday_bearish = intraday_close < intraday_hma if not np.isnan(intraday_hma) else False
+    is_short_confluence = is_intraday_bearish and (osc_wave1 < osc_wave2) and (osc_smf < 0.0) and prob_approved
+
     is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and prob_approved
+    is_mtf_short_confluence = is_short_confluence and (EXECUTION_MODE == "MAX_PROFIT")
 
     try:
         acc_state = tl.get_account_state()
