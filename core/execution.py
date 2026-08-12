@@ -82,34 +82,43 @@ def run_strategy_cycle():
     tl = initialize_client()
     instrument_id = tl.get_instrument_id_from_symbol_name(SYMBOL)
 
-    raw_history = tl.get_price_history(instrument_id, resolution="15m", lookback_period="5D")
-    df = pd.DataFrame(raw_history)
-    df = calculate_indicators(df)
+    # 1. Fetch Daily Macro Price History for Macro Trend (1D HMA-250)
+    raw_macro = tl.get_price_history(instrument_id, resolution="1D", lookback_period="300D")
+    df_macro = pd.DataFrame(raw_macro)
+    df_macro = calculate_indicators(df_macro)
+    macro_row = df_macro.iloc[-1]
+    macro_close = macro_row['close']
+    macro_hma = macro_row['hma_250']
+    is_macro_bullish = macro_close > macro_hma if not np.isnan(macro_hma) else True
 
-    current_row = df.iloc[-1]
-    prev_close = current_row['close']
-    current_hma = current_row['hma_250']
+    # 2. Fetch 15m Intraday Price History for Intraday Setup & Volatility (15m ATR-14)
+    raw_intraday = tl.get_price_history(instrument_id, resolution="15m", lookback_period="5D")
+    df_intraday = pd.DataFrame(raw_intraday)
+    df_intraday = calculate_indicators(df_intraday)
+    intraday_row = df_intraday.iloc[-1]
+    intraday_close = intraday_row['close']
+    intraday_hma = intraday_row['hma_250']
+    is_intraday_bullish = intraday_close > intraday_hma if not np.isnan(intraday_hma) else True
 
-    current_atr = current_row['atr_14'] if 'atr_14' in current_row and not np.isnan(current_row['atr_14']) else 8.0
-    
-    # Intraday Volatility Stop Loss Distance (gives Gold $15-$25 price room so normal 5m/15m noise won't stop it out)
+    # 3. MTF Confluence: Both Macro (1D) AND Intraday (15m) MUST BE BULLISH
+    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish
+
+    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 8.0
     price_stop_distance = max(15.0, min(25.0, round(current_atr * 2.5, 2)))
 
-    # Dynamic Lot Sizing to guarantee STRICT $50 Max Loss:
-    # QTY = $50 / (price_stop_distance * 100) -> e.g. $50 / ($25 * 100) = 0.02 lots!
     contract_size = 100.0
     calculated_qty = max(0.01, round(MAX_LOSS_DOLLARS / (price_stop_distance * contract_size), 2))
     actual_max_risk = calculated_qty * contract_size * price_stop_distance
 
-    print(f"--- Strategy Evaluation for {SYMBOL} ---")
-    print(f"Current Price: ${prev_close:.2f}")
-    print(f"HMA-250 Trend Filter: {current_hma:.2f}")
-    print(f"ATR-14 Volatility: ${current_atr:.2f}")
-    print(f"Volatility Stop Distance: ${price_stop_distance:.2f} price points")
-    print(f"Dynamically Scaled Position Size: {calculated_qty} lots")
+    print(f"--- MTF Confluence Strategy Evaluation for {SYMBOL} ---")
+    print(f"Current Price: ${intraday_close:.2f}")
+    print(f"Macro Trend (1D HMA-250): {'BULLISH 🟢' if is_macro_bullish else 'BEARISH 🔴'}")
+    print(f"Intraday Signal (15m HMA): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
+    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE ⏸️'}")
+    print(f"15m ATR Volatility: ${current_atr:.2f}")
+    print(f"Trailing Stop Distance: ${price_stop_distance:.2f} price points")
+    print(f"Dynamically Scaled Size: {calculated_qty} lots")
     print(f"Strict Max Dollar Risk: ${actual_max_risk:.2f} (Capped at ${MAX_LOSS_DOLLARS:.2f})")
-
-    is_bullish_regime = prev_close > current_hma if not np.isnan(current_hma) else True
 
     positions = tl.get_all_positions()
     has_open_position = False
@@ -140,8 +149,8 @@ def run_strategy_cycle():
         print(f"🛑 Daily Loss Circuit Breaker Triggered (${today_net:.2f} <= -${HARD_DAILY_LOSS_LIMIT:.2f}). No new trades today.")
         return
 
-    if is_bullish_regime and not has_open_position:
-        print(f">>> Signal Triggered: Bullish Regime Confirmed. Opening Long Position for {calculated_qty} lots...")
+    if is_mtf_bullish_confluence and not has_open_position:
+        print(f">>> Signal Triggered: Full MTF Confluence (1D Macro + 15m Intraday). Opening Long Position for {calculated_qty} lots...")
 
         tp_offset = round(price_stop_distance * 2.5, 2)  # 2.5:1 R:R target
 
@@ -159,8 +168,8 @@ def run_strategy_cycle():
         print(f"   • Trailing Stop Loss: -${price_stop_distance:.2f} offset (Max Risk: -${actual_max_risk:.2f})")
         print(f"   • Take Profit Target: +${tp_offset:.2f} offset (Target Profit: +${calculated_qty * contract_size * tp_offset:.2f})")
 
-    elif has_open_position and not is_bullish_regime:
-        print(">>> Exit Triggered: Trend reversed below HMA-250. Closing Position.")
+    elif has_open_position and not is_intraday_bullish:
+        print(">>> Exit Triggered: Intraday trend reversed below 15m HMA. Closing Position.")
         if hasattr(positions, "iterrows"):
             for idx, p in positions.iterrows():
                 pos_id = p.get('id') if 'id' in p else p.get('positionId')
