@@ -431,12 +431,17 @@ def run_strategy_cycle():
         # Instant Sub-30s Tick Pullback Guard: If tick gain >= $10 and price pulls back > $3.50 on ticks -> Instant Exit!
         tick_pullback_triggered = (tick_peak_gain >= 10.0) and (latest_tick_price < (peak_tick_high - 3.50))
         
-        if tick_peak_gain >= 10.0:
+        # Early $5.00 Profit Guardian: If profit >= $5.00 and price pulls back > $1.50 -> Close immediately before returning to red!
+        early_5dollar_protection = (tick_peak_gain >= 5.0) and (latest_tick_price < (peak_tick_high - 1.50))
+        
+        if tick_peak_gain >= 5.0 and tick_peak_gain < 10.0:
+            print(f"🛡️ Early $5.00 Profit Guardian Active: Peak Gain ${tick_peak_gain:.2f} | Protected at Break-Even + $1.00!")
+        elif tick_peak_gain >= 10.0:
             locked_profit_dollars = tick_peak_gain * 0.50
             print(f"⚡ Sub-Second Tick Profit Protection Active: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick Price: ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
 
-        # Exit if 5m intraday trend flips OR sub-30s tick pullback triggers!
-        should_close = (not is_intraday_bullish and not is_intraday_bearish) or tick_pullback_triggered
+        # Exit if 5m intraday trend flips OR sub-30s tick pullback triggers OR early $5 protection triggers!
+        should_close = (not is_intraday_bullish and not is_intraday_bearish) or tick_pullback_triggered or early_5dollar_protection
         
         if should_close:
             print(f">>> Sub-Second Tick Exit Triggered: Peak Tick ${peak_tick_high:.2f} | Closing to lock in profits.")
