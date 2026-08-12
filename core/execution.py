@@ -105,19 +105,34 @@ def initialize_client() -> TLAPI:
     )
 
 
+from utils.helpers import hull_moving_average, calculate_atr, calculate_wolf_oscillator
+
+
 def calculate_indicators(df: pd.DataFrame, hma_period: int = 20) -> pd.DataFrame:
     """
-    Compute strategy indicators using Wolf Algo primitives:
-      - HMA (Fast 20-period for intraday, 100-period for macro)
+    Compute strategy indicators using Wolf Algo V1 primitives:
+      - 3D HMA Ribbon Cloud
       - ATR-14 volatility indicator
+      - Wolf Algo V1 Oscillator (Hyper Wave1/Wave2 + Smart Money Flow MFI)
     """
     close = df['c'] if 'c' in df.columns else df['close']
     high = df['h'] if 'h' in df.columns else df['high']
     low = df['l'] if 'l' in df.columns else df['low']
 
     df['close'] = close
+    df['high'] = high
+    df['low'] = low
+
     df['hma'] = hull_moving_average(close, hma_period)
     df['atr_14'] = calculate_atr(high, low, close, 14)
+
+    w1, w2, smf, breval, bconf = calculate_wolf_oscillator(high, low, close)
+    df['wave1'] = w1
+    df['wave2'] = w2
+    df['smooth_mf'] = smf
+    df['bull_reversal'] = breval
+    df['bull_confluence'] = bconf
+
     return df
 
 
@@ -126,8 +141,8 @@ def run_strategy_cycle():
     Execute a single live strategy evaluation cycle via TradeLocker:
       1. Connect to TradeLocker
       2. Fetch 1D Macro History (1D HMA-100) & 5m Intraday History (5m HMA-20)
-      3. Compute Fast HMA-20 trend regime
-      4. Compute strict $50 max dollar loss Stop Loss ($15-$25 price distance)
+      3. Compute Fast HMA-20 trend regime & Wolf Oscillator Wave/Money Flow
+      4. Compute strict $50 max dollar loss Stop Loss ($35-$50 price distance)
       5. Check daily loss circuit breaker ($125 cap)
       6. Create BUY market order with attached $50 SL or CLOSE position accordingly
     """
@@ -152,8 +167,13 @@ def run_strategy_cycle():
     intraday_hma = intraday_row['hma']
     is_intraday_bullish = intraday_close > intraday_hma if not np.isnan(intraday_hma) else True
 
-    # 3. MTF Confluence: Both Macro (1D) AND Fast Intraday (5m HMA-20) MUST BE BULLISH
-    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish
+    osc_wave1 = intraday_row.get('wave1', 0.0)
+    osc_wave2 = intraday_row.get('wave2', 0.0)
+    osc_smf = intraday_row.get('smooth_mf', 0.0)
+    is_osc_bullish = (osc_wave1 > osc_wave2) or (osc_smf > 0.0)
+
+    # 3. Full Wolf Algo Confluence: Macro Trend (1D) + Fast Intraday (5m HMA) + Wolf Osc Hyper Wave
+    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_osc_bullish
 
     try:
         acc_state = tl.get_account_state()
@@ -272,15 +292,16 @@ def run_strategy_cycle():
             direction=Direction.LONG,
             entry_price=intraday_close,
             stop_loss=stop_loss_price,
-            position_size=int(calculated_qty * 100),
+            position_size=calculated_qty,
             risk_dollars=actual_max_risk,
             risk_ticks=price_stop_distance
         )
         test_order = Order(
             symbol=SYMBOL,
             direction=Direction.LONG,
-            quantity=calculated_qty,
             order_type=OrderType.MARKET,
+            quantity=calculated_qty,
+            price=intraday_close,
             risk_envelope=test_env
         )
         acc_risk_state = AccountRiskState(

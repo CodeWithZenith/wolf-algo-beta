@@ -58,6 +58,56 @@ def calculate_atr(
 
 
 # ---------------------------------------------------------------------------
+# Wolf Algo V1 Oscillator (Hyper Wave + Smart Money Flow)
+# ---------------------------------------------------------------------------
+
+def calculate_wolf_oscillator(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    wave_len: int = 10,
+    wave_smooth: int = 21,
+    sig_len: int = 4,
+    mf_len: int = 35,
+    mf_smooth: int = 6
+) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+    """
+    Direct Python implementation of the Wolf Algo V1 Oscillator:
+      - wave1: Hyper Wave Signal line (EMA of CI)
+      - wave2: Hyper Wave Slow line (SMA of wave1)
+      - smooth_mf: Smart Money Flow (-100 to +100 scale)
+      - bull_reversal: Boolean series triggering at oversold bounces (wave1 <= -60)
+      - bull_confluence: Boolean series where wave1 > wave2 AND smooth_mf > 0
+    """
+    ap = (high + low + close) / 3.0
+    esa = ap.ewm(span=wave_len, adjust=False).mean()
+    d = (ap - esa).abs().ewm(span=wave_len, adjust=False).mean()
+    ci = (ap - esa) / (0.015 * d.replace(0, np.nan))
+    wave1 = ci.ewm(span=wave_smooth, adjust=False).mean().fillna(0.0)
+    wave2 = wave1.rolling(window=sig_len, min_periods=1).mean()
+
+    # Money Flow Index (MFI) logic
+    typical_price = ap
+    money_flow = typical_price * (high - low)
+    pos_flow = pd.Series(np.where(typical_price > typical_price.shift(1), money_flow, 0), index=close.index)
+    neg_flow = pd.Series(np.where(typical_price < typical_price.shift(1), money_flow, 0), index=close.index)
+    
+    pos_mf = pos_flow.rolling(window=mf_len, min_periods=1).sum()
+    neg_mf = neg_flow.rolling(window=mf_len, min_periods=1).sum()
+    mfi_ratio = pos_mf / neg_mf.replace(0, np.nan)
+    raw_mfi = 100.0 - (100.0 / (1.0 + mfi_ratio.fillna(1.0)))
+    shift_mf = (raw_mfi * 2.0) - 100.0
+    smooth_mf = shift_mf.rolling(window=mf_smooth, min_periods=1).mean().fillna(0.0)
+
+    # Reversals & Confluence
+    wave_cross_up = (wave1 > wave2) & (wave1.shift(1) <= wave2.shift(1))
+    bull_reversal = wave_cross_up & (wave1 <= -60.0)
+    bull_confluence = (wave1 > wave2) & (smooth_mf > 0.0)
+
+    return wave1, wave2, smooth_mf, bull_reversal, bull_confluence
+
+
+# ---------------------------------------------------------------------------
 # Pivot Detection
 # ---------------------------------------------------------------------------
 
