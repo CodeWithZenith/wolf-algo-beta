@@ -434,14 +434,17 @@ def run_strategy_cycle():
         # Early $5.00 Profit Guardian: If profit >= $5.00 and price pulls back > $1.50 -> Close immediately before returning to red!
         early_5dollar_protection = (tick_peak_gain >= 5.0) and (latest_tick_price < (peak_tick_high - 1.50))
         
+        # Autonomous Stagnation & Confluence Decay Exit: If profit sitting between $5-$9 and momentum weakens -> Harvest profit early!
+        stagnation_decay_exit = (tick_peak_gain >= 5.0 and tick_peak_gain < 10.0) and (not prob_approved or (osc_wave1 < osc_wave2 if is_intraday_bullish else osc_wave1 > osc_wave2))
+        
         if tick_peak_gain >= 5.0 and tick_peak_gain < 10.0:
             print(f"🛡️ Early $5.00 Profit Guardian Active: Peak Gain ${tick_peak_gain:.2f} | Protected at Break-Even + $1.00!")
         elif tick_peak_gain >= 10.0:
             locked_profit_dollars = tick_peak_gain * 0.50
             print(f"⚡ Sub-Second Tick Profit Protection Active: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick Price: ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
 
-        # Exit if 5m intraday trend flips OR sub-30s tick pullback triggers OR early $5 protection triggers!
-        should_close = (not is_intraday_bullish and not is_intraday_bearish) or tick_pullback_triggered or early_5dollar_protection
+        # Exit if 5m intraday trend flips OR sub-30s tick pullback triggers OR early $5 protection OR stagnation exit triggers!
+        should_close = (not is_intraday_bullish and not is_intraday_bearish) or tick_pullback_triggered or early_5dollar_protection or stagnation_decay_exit
         
         if should_close:
             print(f">>> Sub-Second Tick Exit Triggered: Peak Tick ${peak_tick_high:.2f} | Closing to lock in profits.")
