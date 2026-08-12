@@ -156,21 +156,23 @@ def run_strategy_cycle():
     if is_mtf_bullish_confluence and not has_open_position:
         print(f">>> Signal Triggered: Full MTF Confluence (1D Macro + 15m Intraday). Opening Long Position for {calculated_qty} lots...")
 
-        tp_offset = round(price_stop_distance * 2.5, 2)  # 2.5:1 R:R target
+        stop_loss_price = round(intraday_close - price_stop_distance, 2)
+        take_profit_price = round(intraday_close + (price_stop_distance * 2.5), 2)
 
         tl.create_order(
             instrument_id=instrument_id,
             quantity=float(calculated_qty),
             side="buy",
             type_="market",
-            stop_loss=float(price_stop_distance),
-            stop_loss_type="trailingOffset",
-            take_profit=float(tp_offset),
-            take_profit_type="offset"
+            stop_loss=float(stop_loss_price),
+            stop_loss_type="absolute",
+            take_profit=float(take_profit_price),
+            take_profit_type="absolute"
         )
         print(f"✅ Placed BUY order for {calculated_qty} lots of {SYMBOL}:")
-        print(f"   • Trailing Stop Loss: -${price_stop_distance:.2f} offset (Max Risk: -${actual_max_risk:.2f})")
-        print(f"   • Take Profit Target: +${tp_offset:.2f} offset (Target Profit: +${calculated_qty * contract_size * tp_offset:.2f})")
+        print(f"   • Entry Price: ${intraday_close:.2f}")
+        print(f"   • Absolute Stop Loss: ${stop_loss_price:.2f} (EXACTLY -${price_stop_distance:.2f} below entry | Max Risk: -${actual_max_risk:.2f})")
+        print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
 
     elif has_open_position and not is_intraday_bullish:
         print(">>> Exit Triggered: Intraday trend reversed below 15m HMA. Closing Position.")
