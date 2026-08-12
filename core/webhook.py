@@ -176,6 +176,6 @@ def handle_tradingview_webhook():
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
+    port = int(os.getenv("PORT", 5050))
     print(f"🚀 Starting Wolf Algo TradingView Webhook Server on port {port}...")
     app.run(host="0.0.0.0", port=port)
