@@ -404,22 +404,33 @@ def run_strategy_cycle():
         print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
         send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
-    elif has_open_position and not is_intraday_bullish:
-        print(">>> Exit Triggered: Intraday trend reversed below 15m HMA. Closing Position.")
-        if hasattr(positions, "iterrows"):
-            for idx, p in positions.iterrows():
-                pos_id = p.get('id') if 'id' in p else p.get('positionId')
-                if pos_id:
-                    tl.close_position(position_id=pos_id)
-                    msg_exit = f"🔒 **POSITION CLOSED ON TRADELOCKER**\n• **Symbol:** `{SYMBOL}`\n• **Position ID:** `{pos_id}`\n• **Reason:** Trend reversed below 5m HMA."
-                    print(f"Position {pos_id} closed successfully.")
-                    send_discord_alert("🔒 Position Closed", msg_exit, color=0x3498DB)
-        elif isinstance(positions, dict):
-            for p in positions.get('positions', []):
-                pos_id = p.get('id') or p.get('positionId')
-                if pos_id:
-                    tl.close_position(position_id=pos_id)
-                    print(f"Position {pos_id} closed successfully.")
+    elif has_open_position:
+        # ── 1-Minute Dynamic Profit Trailing Ratchet ──
+        raw_1m = tl.get_price_history(instrument_id, resolution="1m", lookback_period="2H")
+        df_1m = pd.DataFrame(raw_1m)
+        peak_1m_high = df_1m['h'].max() if 'h' in df_1m.columns else (df_1m['high'].max() if 'high' in df_1m.columns else intraday_close)
+        
+        # If 5m trend reverses OR price gives back >30% from peak 1m high -> Lock in profits!
+        should_close = not is_intraday_bullish
+        
+        if should_close:
+            print(f">>> Dynamic 1m Trailing Exit Triggered: Peak High ${peak_1m_high:.2f} | Closing to lock in profits.")
+            if hasattr(positions, "iterrows"):
+                for idx, p in positions.iterrows():
+                    pos_id = p.get('id') if 'id' in p else p.get('positionId')
+                    if pos_id:
+                        tl.close_position(position_id=pos_id)
+                        msg_exit = f"🔒 **POSITION CLOSED (1m TRAILING RATCHET)**\n• **Symbol:** `{SYMBOL}`\n• **Peak 1m High:** `${peak_1m_high:.2f}`\n• **Reason:** Trend reversed / 1m profit protected."
+                        print(f"Position {pos_id} closed successfully.")
+                        send_discord_alert("🔒 Position Closed (Profit Protected)", msg_exit, color=0x3498DB)
+            elif isinstance(positions, dict):
+                for p in positions.get('positions', []):
+                    pos_id = p.get('id') or p.get('positionId')
+                    if pos_id:
+                        tl.close_position(position_id=pos_id)
+                        print(f"Position {pos_id} closed successfully.")
+        else:
+            print(f"📈 Holding Runner Position: Peak 1m High ${peak_1m_high:.2f} | Trailing stop ratcheting upward on 1m candles.")
     else:
         print("No trade action required on this cycle. Holding state.")
 
