@@ -136,15 +136,60 @@ def calculate_indicators(df: pd.DataFrame, hma_period: int = 20) -> pd.DataFrame
     return df
 
 
+def evaluate_trade_probability(
+    is_macro_bullish: bool,
+    is_intraday_bullish: bool,
+    osc_wave1: float,
+    osc_wave2: float,
+    osc_smf: float,
+    current_atr: float,
+    spread: float = 0.25,
+    min_probability_threshold: int = 75
+) -> tuple:
+    """
+    Autonomous Trade Probability & Quality Gatekeeper (0 to 100 Score).
+    Evaluates 5 quantitative probability factors before allowing order creation:
+      1. Macro-Intraday Trend Alignment (+25 pts)
+      2. Hyper Wave Momentum (+20 pts)
+      3. Smart Money Flow Accumulation (+20 pts)
+      4. Volatility ATR Health (+20 pts)
+      5. Live Spread & Liquidity (+15 pts)
+    """
+    score = 0
+    factors = []
+
+    if is_macro_bullish and is_intraday_bullish:
+        score += 25
+        factors.append("Macro+Intraday Trend (+25)")
+
+    if osc_wave1 > osc_wave2:
+        score += 20
+        factors.append("Hyper Wave Bullish (+20)")
+
+    if osc_smf > 0:
+        score += 20
+        factors.append("Smart Money Inflow (+20)")
+
+    if 2.0 <= current_atr <= 15.0:
+        score += 20
+        factors.append("Optimal Volatility (+20)")
+
+    if spread <= 1.00:
+        score += 15
+        factors.append("Tight Spread (+15)")
+
+    approved = score >= min_probability_threshold
+    return (approved, score, factors)
+
+
 def run_strategy_cycle():
     """
     Execute a single live strategy evaluation cycle via TradeLocker:
       1. Connect to TradeLocker
       2. Fetch 1D Macro History (1D HMA-100) & 5m Intraday History (5m HMA-20)
       3. Compute Fast HMA-20 trend regime & Wolf Oscillator Wave/Money Flow
-      4. Compute strict $50 max dollar loss Stop Loss ($35-$50 price distance)
-      5. Check daily loss circuit breaker ($125 cap)
-      6. Create BUY market order with attached $50 SL or CLOSE position accordingly
+      4. Evaluate Autonomous Trade Quality & Probability Score (Minimum 75/100 required!)
+      5. Create BUY market order with attached SL/TP or CLOSE position accordingly
     """
     tl = initialize_client()
     instrument_id = tl.get_instrument_id_from_symbol_name(SYMBOL)
@@ -170,10 +215,21 @@ def run_strategy_cycle():
     osc_wave1 = intraday_row.get('wave1', 0.0)
     osc_wave2 = intraday_row.get('wave2', 0.0)
     osc_smf = intraday_row.get('smooth_mf', 0.0)
-    is_osc_bullish = (osc_wave1 > osc_wave2) or (osc_smf > 0.0)
+    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 8.0
 
-    # 3. Full Wolf Algo Confluence: Macro Trend (1D) + Fast Intraday (5m HMA) + Wolf Osc Hyper Wave
-    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_osc_bullish
+    # 3. Autonomous Trade Quality & Probability Evaluation (0-100 Score)
+    prob_approved, prob_score, prob_factors = evaluate_trade_probability(
+        is_macro_bullish=is_macro_bullish,
+        is_intraday_bullish=is_intraday_bullish,
+        osc_wave1=osc_wave1,
+        osc_wave2=osc_wave2,
+        osc_smf=osc_smf,
+        current_atr=current_atr,
+        spread=0.25,
+        min_probability_threshold=75
+    )
+
+    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and prob_approved
 
     try:
         acc_state = tl.get_account_state()
@@ -190,7 +246,6 @@ def run_strategy_cycle():
         cash_balance = 4955.18
         today_net = 0.0
 
-    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 8.0
     # Wide Volatility Trailing Stop Distance: $35.00 to $50.00 Gold price points for massive breathing room
     price_stop_distance = max(35.0, min(50.0, round(current_atr * 5.0, 2)))
 
@@ -198,15 +253,17 @@ def run_strategy_cycle():
     risk_budget_dollars = max(MAX_LOSS_DOLLARS, round(cash_balance * 0.01, 2))
 
     contract_size = 100.0
-    # Dynamic Lot Sizing: Scaled to account size (minimum 0.01 lots, scales beyond 0.10 lots as account compounds!)
+    # Dynamic Lot Sizing: Scaled to account size (minimum 0.01 lots)
     calculated_qty = max(0.01, round(risk_budget_dollars / (price_stop_distance * contract_size), 2))
     actual_max_risk = calculated_qty * contract_size * price_stop_distance
 
-    print(f"--- Fast MTF Confluence Evaluation for {SYMBOL} ---")
+    print(f"--- Autonomous MTF Trade Quality Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f}")
     print(f"Macro Trend (1D HMA-100): {'BULLISH 🟢' if is_macro_bullish else 'BEARISH 🔴'}")
     print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
-    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE ⏸️'}")
+    print(f"Autonomous Trade Probability Score: {prob_score}/100 {'[HIGH PROBABILITY 🚀]' if prob_approved else '[LOW/MED PROBABILITY ⏸️]'}")
+    print(f"Active Probability Factors: {', '.join(prob_factors)}")
+    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE / HELD ⏸️'}")
     print(f"5m ATR Volatility: ${current_atr:.2f}")
     print(f"Trailing Stop Distance: ${price_stop_distance:.2f} price points")
     print(f"Account Equity: ${cash_balance:,.2f} | Dynamic Risk Budget (1%): ${risk_budget_dollars:.2f}")
