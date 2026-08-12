@@ -343,7 +343,8 @@ def run_strategy_cycle():
 
     if is_mtf_bullish_confluence and not has_open_position:
         stop_loss_price = round(intraday_close - price_stop_distance, 2)
-        take_profit_price = round(intraday_close + (price_stop_distance * 2.5), 2)
+        # Deep Take Profit Ceiling: $150.00 minimum profit target ceiling ($150 Gold price points for 0.01 lot)
+        take_profit_price = round(intraday_close + max(150.0, price_stop_distance * 15.0), 2)
 
         risk_config = RiskConfig(
             max_loss_per_trade_pct=1.0,
