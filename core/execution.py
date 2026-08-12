@@ -155,11 +155,84 @@ def run_strategy_cycle():
         print(f"🛑 Daily Loss Circuit Breaker Triggered (${today_net:.2f} <= -${HARD_DAILY_LOSS_LIMIT:.2f}). No new trades today.")
         return
 
-    if is_mtf_bullish_confluence and not has_open_position:
-        print(f">>> Signal Triggered: Full MTF Confluence (1D Macro + 15m Intraday). Opening Long Position for {calculated_qty} lots...")
+    # ── State Recovery & Fault Tolerance: Sync & Cleanup Orphan Orders ──
+    try:
+        orders = tl.get_all_orders()
+        pos_df = tl.get_all_positions()
+        active_pos_ids = set()
+        if hasattr(pos_df, "iterrows"):
+            for idx, p in pos_df.iterrows():
+                pid = p.get('id') or p.get('positionId')
+                if pid:
+                    active_pos_ids.add(str(pid))
+        elif isinstance(pos_df, dict):
+            for p in pos_df.get('positions', []):
+                pid = p.get('id') or p.get('positionId')
+                if pid:
+                    active_pos_ids.add(str(pid))
 
+        if hasattr(orders, "iterrows"):
+            for idx, o in orders.iterrows():
+                oid = o.get('id')
+                opid = o.get('positionId')
+                if opid and str(opid) not in active_pos_ids:
+                    print(f"🧹 State Recovery: Cleaning orphan order {oid} for closed position {opid}...")
+                    try:
+                        tl.cancel_order(order_id=oid)
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"State sync note: {e}")
+
+    # ── Risk Parameter Isolation: Gate order through RiskManager ──
+    from config.settings import RiskConfig
+    from risk.manager import RiskManager
+    from risk.models import Order, OrderType, TradeRiskEnvelope, Direction, AccountRiskState
+
+    if is_mtf_bullish_confluence and not has_open_position:
         stop_loss_price = round(intraday_close - price_stop_distance, 2)
         take_profit_price = round(intraday_close + (price_stop_distance * 2.5), 2)
+
+        risk_config = RiskConfig(
+            max_loss_per_trade_pct=1.0,
+            hard_daily_loss_limit=HARD_DAILY_LOSS_LIMIT,
+            max_drawdown_pct=3.0,
+            require_structural_stop=True,
+            max_open_positions=1
+        )
+        risk_mgr = RiskManager(config=risk_config)
+        test_env = TradeRiskEnvelope(
+            symbol=SYMBOL,
+            direction=Direction.LONG,
+            entry_price=intraday_close,
+            stop_loss=stop_loss_price,
+            position_size=int(calculated_qty * 100),
+            risk_dollars=actual_max_risk,
+            risk_ticks=price_stop_distance
+        )
+        test_order = Order(
+            symbol=SYMBOL,
+            direction=Direction.LONG,
+            quantity=calculated_qty,
+            order_type=OrderType.MARKET,
+            risk_envelope=test_env
+        )
+        acc_risk_state = AccountRiskState(
+            current_equity=cash_balance,
+            daily_pnl=today_net,
+            open_position_count=1 if has_open_position else 0
+        )
+        decision = risk_mgr.gate_order(test_order, acc_risk_state)
+
+        if not decision.approved:
+            print(f"🛑 Order REJECTED by RiskManager Gatekeeper: {decision.message}")
+            return
+
+        if decision.adjusted_size and decision.adjusted_size < calculated_qty:
+            calculated_qty = decision.adjusted_size
+            print(f"⚠️ Position Size adjusted by RiskManager to {calculated_qty} lots.")
+
+        print(f">>> Signal Triggered & Risk Approved: Full MTF Confluence. Opening Long Position for {calculated_qty} lots...")
 
         tl.create_order(
             instrument_id=instrument_id,

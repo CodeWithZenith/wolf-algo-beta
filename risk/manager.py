@@ -163,6 +163,22 @@ class RiskManager:
                         return decision
 
         # ──────────────────────────────────────────────
+        # Rule 6: Absolute Position Quantity Cap (Isolated Risk Boundary)
+        # ──────────────────────────────────────────────
+        max_allowed_qty = getattr(self.config, "max_position_qty", 0.10)
+        if order.quantity > max_allowed_qty:
+            decision = RiskDecision.approve(
+                f"Position size {order.quantity} exceeded hard isolated limit {max_allowed_qty}. Capped to {max_allowed_qty} lots."
+            )
+            decision.adjusted_size = max_allowed_qty
+            log_event(
+                self.logger, "warning", LogTag.RISK,
+                f"Position size capped to hard isolated limit: {order.quantity} → {max_allowed_qty}",
+                {"symbol": order.symbol, "max_allowed": max_allowed_qty},
+            )
+            return decision
+
+        # ──────────────────────────────────────────────
         # All checks passed
         # ──────────────────────────────────────────────
         decision = RiskDecision.approve("All risk checks passed.")

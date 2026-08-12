@@ -282,13 +282,25 @@ class BacktestEngine:
                         else:
                             tp_levels.append(entry_price - risk_dist * ratio)
 
-                    # Apply slippage to entry
-                    if direction == Direction.LONG:
-                        fill_price = entry_price + self.slippage
-                    else:
-                        fill_price = entry_price - self.slippage
+                    # ── Latency Modeling: Order fill is routed with latency ──
+                    # In real trading, order fills occur on the NEXT tick/bar open with slippage penalty
+                    latency_delay_bars = getattr(self.config.execution, "latency_bars", 1)
+                    fill_bar_idx = min(i + latency_delay_bars, total_bars - 1)
+                    
+                    # Fill price is based on the latency-delayed bar Open plus slippage penalty
+                    base_fill_price = df["Open"].iloc[fill_bar_idx] if "Open" in df.columns else entry_price
+                    
+                    # Dynamic volatility-adjusted slippage penalty
+                    atr_slippage = (current_atr_val * 0.05) if current_atr_val > 0 else self.slippage
+                    total_slippage = max(self.slippage, atr_slippage)
 
-                    # Commission
+                    # Apply conservative slippage to entry fill
+                    if direction == Direction.LONG:
+                        fill_price = base_fill_price + total_slippage
+                    else:
+                        fill_price = base_fill_price - total_slippage
+
+                    # Commission per order
                     self.equity -= self.commission
 
                     self.current_position = {
@@ -297,7 +309,9 @@ class BacktestEngine:
                         "stop_loss": stop_loss,
                         "tp_levels": tp_levels,
                         "quantity": position_size,
-                        "entry_time": bar_time,
+                        "entry_time": df.index[fill_bar_idx] if isinstance(df.index[fill_bar_idx], datetime) else bar_time,
+                        "slippage_paid": total_slippage,
+                    }
                         "symbol": symbol,
                     }
 
