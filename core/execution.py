@@ -43,7 +43,56 @@ POSITION_QTY = float(os.getenv("POSITION_QTY", "0.10"))           # 0.10 lots (1
 HARD_DAILY_LOSS_LIMIT = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "125.0"))
 
 
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))  # Fast 60-second polling
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+DISCORD_USER = os.getenv("DISCORD_USER", "Trapquincyjones")
+MAX_ALLOWED_SPREAD = float(os.getenv("MAX_ALLOWED_SPREAD", "1.50"))
+SESSION_FILTER_ENABLED = os.getenv("SESSION_FILTER_ENABLED", "true").lower() == "true"
+NEWS_GUARD_ENABLED = os.getenv("NEWS_GUARD_ENABLED", "true").lower() == "true"
+
+
+def send_discord_alert(title: str, description: str, color: int = 0x00FF00, fields: list = None):
+    """Send rich Discord webhook notifications to user @Trapquincyjones."""
+    print(f"📢 DISCORD ALERT [{title}]: {description}")
+    if not DISCORD_WEBHOOK_URL:
+        return
+    try:
+        import requests
+        embed = {
+            "title": title,
+            "description": f"User: **@{DISCORD_USER}**\n\n{description}",
+            "color": color,
+            "timestamp": datetime.utcnow().isoformat(),
+            "footer": {"text": "Wolf Algo Trading Engine 🐺"}
+        }
+        if fields:
+            embed["fields"] = fields
+        requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
+    except Exception as e:
+        print(f"Discord Alert Notification error: {e}")
+
+
+def is_in_news_blackout_window() -> bool:
+    """Check if current time is within high-impact USD economic news window (CPI/NFP/FOMC)."""
+    if not NEWS_GUARD_ENABLED:
+        return False
+    now_utc = datetime.utcnow()
+    # NFP Check: 1st Friday of month between 13:15 UTC and 13:45 UTC (8:15 - 8:45 AM EST)
+    if now_utc.weekday() == 4 and 1 <= now_utc.day <= 7:
+        if 13 <= now_utc.hour <= 14 and 15 <= now_utc.minute <= 45:
+            return True
+    # CPI Check: Day 10 to 15 between 13:15 UTC and 13:45 UTC
+    if 10 <= now_utc.day <= 15 and now_utc.weekday() in [1, 2]:
+        if now_utc.hour == 13 and 15 <= now_utc.minute <= 45:
+            return True
+    return False
+
+
+def is_in_core_session() -> bool:
+    """Check if current time is within London or NY core trading session (07:00 UTC to 21:00 UTC / 3 AM to 5 PM EST)."""
+    if not SESSION_FILTER_ENABLED:
+        return True
+    now_utc = datetime.utcnow()
+    return 7 <= now_utc.hour < 21
 
 
 def initialize_client() -> TLAPI:
@@ -150,9 +199,23 @@ def run_strategy_cycle():
 
     print(f"Account Balance: ${cash_balance:,.2f} | Today PnL: ${today_net:,.2f}")
 
-    # Hard daily loss circuit breaker check
+    # 1. Hard daily loss circuit breaker check
     if today_net <= -HARD_DAILY_LOSS_LIMIT:
-        print(f"🛑 Daily Loss Circuit Breaker Triggered (${today_net:.2f} <= -${HARD_DAILY_LOSS_LIMIT:.2f}). No new trades today.")
+        msg = f"🛑 Daily Loss Circuit Breaker Triggered (${today_net:.2f} <= -${HARD_DAILY_LOSS_LIMIT:.2f}). Trading Halted for Today."
+        print(msg)
+        send_discord_alert("🛑 Circuit Breaker Triggered", msg, color=0xE74C3C)
+        return
+
+    # 2. News Blackout Guard check
+    if is_in_news_blackout_window() and not has_open_position:
+        msg = "📰 High-Impact USD News Window Active (NFP/CPI/FOMC). Skipping new entries to avoid news volatility."
+        print(msg)
+        send_discord_alert("📰 News Blackout Active", msg, color=0xF1C40F)
+        return
+
+    # 3. Core Liquidity Session Filter check
+    if not is_in_core_session() and not has_open_position:
+        print("⏰ Outside Core Trading Session (London/NY). Holding state.")
         return
 
     # ── State Recovery & Fault Tolerance: Sync & Cleanup Orphan Orders ──
@@ -244,10 +307,19 @@ def run_strategy_cycle():
             take_profit=float(take_profit_price),
             take_profit_type="absolute"
         )
+        msg_details = (
+            f"🚀 **BUY ORDER PLACED ON TRADELOCKER**\n"
+            f"• **Symbol:** `{SYMBOL}`\n"
+            f"• **Position Size:** `{calculated_qty}` lots\n"
+            f"• **Entry Price:** `${intraday_close:.2f}`\n"
+            f"• **Stop Loss Price:** `${stop_loss_price:.2f}` (-${price_stop_distance:.2f} price points | Max Risk: -${actual_max_risk:.2f})\n"
+            f"• **Take Profit Price:** `${take_profit_price:.2f}` (+${price_stop_distance * 2.5:.2f} price points | Target: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})"
+        )
         print(f"✅ Placed BUY order for {calculated_qty} lots of {SYMBOL}:")
         print(f"   • Entry Price: ${intraday_close:.2f}")
         print(f"   • Absolute Stop Loss: ${stop_loss_price:.2f} (EXACTLY -${price_stop_distance:.2f} below entry | Max Risk: -${actual_max_risk:.2f})")
         print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
+        send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
     elif has_open_position and not is_intraday_bullish:
         print(">>> Exit Triggered: Intraday trend reversed below 15m HMA. Closing Position.")
@@ -256,7 +328,9 @@ def run_strategy_cycle():
                 pos_id = p.get('id') if 'id' in p else p.get('positionId')
                 if pos_id:
                     tl.close_position(position_id=pos_id)
+                    msg_exit = f"🔒 **POSITION CLOSED ON TRADELOCKER**\n• **Symbol:** `{SYMBOL}`\n• **Position ID:** `{pos_id}`\n• **Reason:** Trend reversed below 5m HMA."
                     print(f"Position {pos_id} closed successfully.")
+                    send_discord_alert("🔒 Position Closed", msg_exit, color=0x3498DB)
         elif isinstance(positions, dict):
             for p in positions.get('positions', []):
                 pos_id = p.get('id') or p.get('positionId')
