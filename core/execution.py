@@ -246,16 +246,20 @@ def run_strategy_cycle():
         cash_balance = 4955.18
         today_net = 0.0
 
-    # Wide Volatility Trailing Stop Distance: $35.00 to $50.00 Gold price points for massive breathing room
-    price_stop_distance = max(35.0, min(50.0, round(current_atr * 5.0, 2)))
-
-    # Dynamic Risk Budget based on Account Equity (1.0% per trade, minimum $50.00)
-    risk_budget_dollars = max(MAX_LOSS_DOLLARS, round(cash_balance * 0.01, 2))
-
     contract_size = 100.0
-    # Dynamic Lot Sizing: Scaled to account size (minimum 0.01 lots)
-    calculated_qty = max(0.01, round(risk_budget_dollars / (price_stop_distance * contract_size), 2))
-    actual_max_risk = calculated_qty * contract_size * price_stop_distance
+
+    # Lot Sizing & Dynamic Risk Scale based on Account Balance
+    # Base: 0.01 lots = $10 risk ($10 SL distance), max 0.05 lots = $50 risk until balance > $5,000
+    if cash_balance <= 5000.0:
+        calculated_qty = 0.01  # Conservative base 0.01 lot ($10 risk)
+    else:
+        # Scale lot size as account balance compounds beyond $5,000
+        calculated_qty = max(0.01, round((cash_balance / 5000.0) * 0.05, 2))
+
+    # Dollar Risk determined directly by Lot Size ($1,000 risk per 1.00 lot | $10 risk per 0.01 lot)
+    actual_max_risk = round(calculated_qty * 1000.0, 2)
+    # Trailing Stop Loss price distance derived from lot size ($10.00 price points)
+    price_stop_distance = round(actual_max_risk / (calculated_qty * contract_size), 2)
 
     print(f"--- Autonomous MTF Trade Quality Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f}")
@@ -265,10 +269,8 @@ def run_strategy_cycle():
     print(f"Active Probability Factors: {', '.join(prob_factors)}")
     print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE / HELD ⏸️'}")
     print(f"5m ATR Volatility: ${current_atr:.2f}")
-    print(f"Trailing Stop Distance: ${price_stop_distance:.2f} price points")
-    print(f"Account Equity: ${cash_balance:,.2f} | Dynamic Risk Budget (1%): ${risk_budget_dollars:.2f}")
-    print(f"Dynamically Scaled Size: {calculated_qty} lots")
-    print(f"Actual Max Dollar Risk: ${actual_max_risk:.2f}")
+    print(f"Account Equity: ${cash_balance:,.2f} | Dynamic Lot Size: {calculated_qty} lots")
+    print(f"Actual Max Dollar Risk: ${actual_max_risk:.2f} (Trailing SL Distance: ${price_stop_distance:.2f} price points)")
 
     positions = tl.get_all_positions()
     has_open_position = False
