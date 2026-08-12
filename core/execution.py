@@ -43,6 +43,9 @@ POSITION_QTY = float(os.getenv("POSITION_QTY", "0.10"))           # 0.10 lots (1
 HARD_DAILY_LOSS_LIMIT = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "125.0"))
 
 
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))  # Fast 60-second polling
+
+
 def initialize_client() -> TLAPI:
     """Initialize and authenticate the TradeLocker API client."""
     return TLAPI(
@@ -53,10 +56,10 @@ def initialize_client() -> TLAPI:
     )
 
 
-def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_indicators(df: pd.DataFrame, hma_period: int = 20) -> pd.DataFrame:
     """
     Compute strategy indicators using Wolf Algo primitives:
-      - HMA-250 trend filter
+      - HMA (Fast 20-period for intraday, 100-period for macro)
       - ATR-14 volatility indicator
     """
     close = df['c'] if 'c' in df.columns else df['close']
@@ -64,7 +67,7 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     low = df['l'] if 'l' in df.columns else df['low']
 
     df['close'] = close
-    df['hma_250'] = hull_moving_average(close, 250)
+    df['hma'] = hull_moving_average(close, hma_period)
     df['atr_14'] = calculate_atr(high, low, close, 14)
     return df
 
@@ -73,49 +76,49 @@ def run_strategy_cycle():
     """
     Execute a single live strategy evaluation cycle via TradeLocker:
       1. Connect to TradeLocker
-      2. Fetch price history for SYMBOL (XAUUSD)
-      3. Compute HMA-250 trend regime
-      4. Compute strict $50 max dollar loss Stop Loss ($5.00 price distance on 0.10 lots)
+      2. Fetch 1D Macro History (1D HMA-100) & 5m Intraday History (5m HMA-20)
+      3. Compute Fast HMA-20 trend regime
+      4. Compute strict $50 max dollar loss Stop Loss ($15-$25 price distance)
       5. Check daily loss circuit breaker ($125 cap)
       6. Create BUY market order with attached $50 SL or CLOSE position accordingly
     """
     tl = initialize_client()
     instrument_id = tl.get_instrument_id_from_symbol_name(SYMBOL)
 
-    # 1. Fetch Daily Macro Price History for Macro Trend (1D HMA-250)
-    raw_macro = tl.get_price_history(instrument_id, resolution="1D", lookback_period="300D")
+    # 1. Fetch Daily Macro Price History for Macro Trend (1D HMA-100)
+    raw_macro = tl.get_price_history(instrument_id, resolution="1D", lookback_period="200D")
     df_macro = pd.DataFrame(raw_macro)
-    df_macro = calculate_indicators(df_macro)
+    df_macro = calculate_indicators(df_macro, hma_period=100)
     macro_row = df_macro.iloc[-1]
     macro_close = macro_row['close']
-    macro_hma = macro_row['hma_250']
+    macro_hma = macro_row['hma']
     is_macro_bullish = macro_close > macro_hma if not np.isnan(macro_hma) else True
 
-    # 2. Fetch 15m Intraday Price History for Intraday Setup & Volatility (15m ATR-14)
-    raw_intraday = tl.get_price_history(instrument_id, resolution="15m", lookback_period="5D")
+    # 2. Fetch 5m Intraday Price History for Fast Setup & Volatility (5m HMA-20)
+    raw_intraday = tl.get_price_history(instrument_id, resolution="5m", lookback_period="2D")
     df_intraday = pd.DataFrame(raw_intraday)
-    df_intraday = calculate_indicators(df_intraday)
+    df_intraday = calculate_indicators(df_intraday, hma_period=20)
     intraday_row = df_intraday.iloc[-1]
     intraday_close = intraday_row['close']
-    intraday_hma = intraday_row['hma_250']
+    intraday_hma = intraday_row['hma']
     is_intraday_bullish = intraday_close > intraday_hma if not np.isnan(intraday_hma) else True
 
-    # 3. MTF Confluence: Both Macro (1D) AND Intraday (15m) MUST BE BULLISH
+    # 3. MTF Confluence: Both Macro (1D) AND Fast Intraday (5m HMA-20) MUST BE BULLISH
     is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish
 
-    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 8.0
+    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 5.0
     price_stop_distance = max(15.0, min(25.0, round(current_atr * 2.5, 2)))
 
     contract_size = 100.0
     calculated_qty = max(0.01, round(MAX_LOSS_DOLLARS / (price_stop_distance * contract_size), 2))
     actual_max_risk = calculated_qty * contract_size * price_stop_distance
 
-    print(f"--- MTF Confluence Strategy Evaluation for {SYMBOL} ---")
+    print(f"--- Fast MTF Confluence Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f}")
-    print(f"Macro Trend (1D HMA-250): {'BULLISH 🟢' if is_macro_bullish else 'BEARISH 🔴'}")
-    print(f"Intraday Signal (15m HMA): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
+    print(f"Macro Trend (1D HMA-100): {'BULLISH 🟢' if is_macro_bullish else 'BEARISH 🔴'}")
+    print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
     print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE ⏸️'}")
-    print(f"15m ATR Volatility: ${current_atr:.2f}")
+    print(f"5m ATR Volatility: ${current_atr:.2f}")
     print(f"Trailing Stop Distance: ${price_stop_distance:.2f} price points")
     print(f"Dynamically Scaled Size: {calculated_qty} lots")
     print(f"Strict Max Dollar Risk: ${actual_max_risk:.2f} (Capped at ${MAX_LOSS_DOLLARS:.2f})")
