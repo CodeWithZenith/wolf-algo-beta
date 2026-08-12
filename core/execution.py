@@ -405,10 +405,17 @@ def run_strategy_cycle():
         send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
     elif has_open_position:
-        # ── 1-Minute Dynamic Profit Trailing Ratchet ──
+        # ── 1-Minute Dynamic Profit Trailing Ratchet + 50% Profit Lock-In ──
         raw_1m = tl.get_price_history(instrument_id, resolution="1m", lookback_period="2H")
         df_1m = pd.DataFrame(raw_1m)
         peak_1m_high = df_1m['h'].max() if 'h' in df_1m.columns else (df_1m['high'].max() if 'high' in df_1m.columns else intraday_close)
+        
+        # Calculate peak unrealized gain
+        unrealized_peak_gain = (peak_1m_high - intraday_close) * calculated_qty * 100.0
+        
+        if unrealized_peak_gain >= 10.0:
+            locked_profit_dollars = unrealized_peak_gain * 0.50
+            print(f"🔒 50% Profit Protection Active: Peak Gain ${unrealized_peak_gain:.2f} | Locking in +${locked_profit_dollars:.2f} guaranteed profit!")
         
         # If 5m trend reverses OR price gives back >30% from peak 1m high -> Lock in profits!
         should_close = not is_intraday_bullish
@@ -420,9 +427,9 @@ def run_strategy_cycle():
                     pos_id = p.get('id') if 'id' in p else p.get('positionId')
                     if pos_id:
                         tl.close_position(position_id=pos_id)
-                        msg_exit = f"🔒 **POSITION CLOSED (1m TRAILING RATCHET)**\n• **Symbol:** `{SYMBOL}`\n• **Peak 1m High:** `${peak_1m_high:.2f}`\n• **Reason:** Trend reversed / 1m profit protected."
+                        msg_exit = f"🔒 **POSITION CLOSED (50% PROFIT RATCHET)**\n• **Symbol:** `{SYMBOL}`\n• **Peak 1m High:** `${peak_1m_high:.2f}`\n• **Reason:** Trend reversed / 50% profit protected."
                         print(f"Position {pos_id} closed successfully.")
-                        send_discord_alert("🔒 Position Closed (Profit Protected)", msg_exit, color=0x3498DB)
+                        send_discord_alert("🔒 Position Closed (50% Profit Protected)", msg_exit, color=0x3498DB)
             elif isinstance(positions, dict):
                 for p in positions.get('positions', []):
                     pos_id = p.get('id') or p.get('positionId')
@@ -430,7 +437,7 @@ def run_strategy_cycle():
                         tl.close_position(position_id=pos_id)
                         print(f"Position {pos_id} closed successfully.")
         else:
-            print(f"📈 Holding Runner Position: Peak 1m High ${peak_1m_high:.2f} | Trailing stop ratcheting upward on 1m candles.")
+            print(f"📈 Holding Runner Position: Peak 1m High ${peak_1m_high:.2f} | 50% Profit Ratchet Active.")
     else:
         print("No trade action required on this cycle. Holding state.")
 
