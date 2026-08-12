@@ -111,7 +111,9 @@ def run_strategy_cycle():
     price_stop_distance = max(35.0, min(50.0, round(current_atr * 5.0, 2)))
 
     contract_size = 100.0
-    calculated_qty = max(0.01, round(MAX_LOSS_DOLLARS / (price_stop_distance * contract_size), 2))
+    raw_qty = round(MAX_LOSS_DOLLARS / (price_stop_distance * contract_size), 2)
+    # Dynamic Lot Sizing bounded strictly between 0.01 and 0.10 lots
+    calculated_qty = max(0.01, min(0.10, raw_qty))
     actual_max_risk = calculated_qty * contract_size * price_stop_distance
 
     print(f"--- Fast MTF Confluence Evaluation for {SYMBOL} ---")
