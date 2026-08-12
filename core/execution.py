@@ -36,8 +36,8 @@ load_dotenv()
 TL_ENVIRONMENT = os.getenv("TL_ENVIRONMENT", "https://demo.tradelocker.com")
 TL_USERNAME = os.getenv("TL_USERNAME", "")
 TL_PASSWORD = os.getenv("TL_PASSWORD", "")
-TL_SERVER = os.getenv("TL_SERVER", "")
 SYMBOL = os.getenv("SYMBOL", "XAUUSD")
+ALLOWED_BIG_THREE_SYMBOLS = ["XAUUSD", "NAS100", "US30"]
 MAX_LOSS_DOLLARS = float(os.getenv("MAX_LOSS_DOLLARS", "50.0"))  # Strict $50 max dollar loss per trade
 POSITION_QTY = float(os.getenv("POSITION_QTY", "0.10"))           # 0.10 lots (10 oz of Gold)
 HARD_DAILY_LOSS_LIMIT = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "125.0"))
