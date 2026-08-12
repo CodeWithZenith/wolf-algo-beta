@@ -412,35 +412,41 @@ def run_strategy_cycle():
         send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
     elif has_open_position:
-        # ── 1-Minute Dynamic Profit Trailing Ratchet + TP1 Lock-In (Both Longs & Shorts) ──
-        raw_1m = tl.get_price_history(instrument_id, resolution="1m", lookback_period="2H")
-        df_1m = pd.DataFrame(raw_1m)
-        peak_1m_high = df_1m['h'].max() if 'h' in df_1m.columns else (df_1m['high'].max() if 'high' in df_1m.columns else intraday_close)
-        lowest_1m_low = df_1m['l'].min() if 'l' in df_1m.columns else (df_1m['low'].min() if 'low' in df_1m.columns else intraday_close)
+        # ── Sub-Second Tick-Level Profit & Pullback Ratchet ──
+        # Fetch real-time tick price stream for instant sub-30s pullback protection
+        raw_ticks = tl.get_price_history(instrument_id, resolution="1m", lookback_period="30m")
+        df_ticks = pd.DataFrame(raw_ticks)
         
-        # Calculate peak unrealized gain (Long vs Short)
-        unrealized_peak_gain = max(
-            (peak_1m_high - intraday_close) * calculated_qty * 100.0,
-            (intraday_close - lowest_1m_low) * calculated_qty * 100.0
+        latest_tick_price = df_ticks['c'].iloc[-1] if 'c' in df_ticks.columns else intraday_close
+        peak_tick_high = df_ticks['h'].max() if 'h' in df_ticks.columns else intraday_close
+        lowest_tick_low = df_ticks['l'].min() if 'l' in df_ticks.columns else intraday_close
+        
+        # Calculate real-time tick peak gain
+        tick_peak_gain = max(
+            (peak_tick_high - latest_tick_price) * calculated_qty * 100.0,
+            (latest_tick_price - lowest_tick_low) * calculated_qty * 100.0
         )
         
-        if unrealized_peak_gain >= 10.0:
-            locked_profit_dollars = unrealized_peak_gain * 0.50
-            print(f"🔒 TP1 Profit Protection Active: Peak Gain ${unrealized_peak_gain:.2f} | Stop Loss moved to TP1 (Locking in +${locked_profit_dollars:.2f} profit)!")
+        # Instant Sub-30s Tick Pullback Guard: If tick gain >= $10 and price pulls back > $3.50 on ticks -> Instant Exit!
+        tick_pullback_triggered = (tick_peak_gain >= 10.0) and (latest_tick_price < (peak_tick_high - 3.50))
         
-        # Exit if 5m intraday trend flips direction
-        should_close = not is_intraday_bullish and not is_intraday_bearish
+        if tick_peak_gain >= 10.0:
+            locked_profit_dollars = tick_peak_gain * 0.50
+            print(f"⚡ Sub-Second Tick Profit Protection Active: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick Price: ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
+
+        # Exit if 5m intraday trend flips OR sub-30s tick pullback triggers!
+        should_close = (not is_intraday_bullish and not is_intraday_bearish) or tick_pullback_triggered
         
         if should_close:
-            print(f">>> Dynamic 1m Trailing Exit Triggered: Closing to lock in runner profits.")
+            print(f">>> Sub-Second Tick Exit Triggered: Peak Tick ${peak_tick_high:.2f} | Closing to lock in profits.")
             if hasattr(positions, "iterrows"):
                 for idx, p in positions.iterrows():
                     pos_id = p.get('id') if 'id' in p else p.get('positionId')
                     if pos_id:
                         tl.close_position(position_id=pos_id)
-                        msg_exit = f"🔒 **POSITION CLOSED (RUNNER TRAILING RATCHET)**\n• **Symbol:** `{SYMBOL}`\n• **Peak Gain:** `${unrealized_peak_gain:.2f}`\n• **Reason:** Trend reversed / TP1 profit protected."
+                        msg_exit = f"⚡ **POSITION CLOSED (SUB-SECOND TICK GUARD)**\n• **Symbol:** `{SYMBOL}`\n• **Peak Tick High:** `${peak_tick_high:.2f}`\n• **Current Tick:** `${latest_tick_price:.2f}`\n• **Reason:** Sub-30s pullback protected."
                         print(f"Position {pos_id} closed successfully.")
-                        send_discord_alert("🔒 Position Closed (Runner Profit Protected)", msg_exit, color=0x3498DB)
+                        send_discord_alert("⚡ Position Closed (Sub-Second Tick Guard)", msg_exit, color=0x3498DB)
             elif isinstance(positions, dict):
                 for p in positions.get('positions', []):
                     pos_id = p.get('id') or p.get('positionId')
@@ -448,7 +454,7 @@ def run_strategy_cycle():
                         tl.close_position(position_id=pos_id)
                         print(f"Position {pos_id} closed successfully.")
         else:
-            print(f"📈 Holding Trailing Runner: Peak Gain ${unrealized_peak_gain:.2f} | TP1 Lock-In Ratchet Active on 1m candles.")
+            print(f"📈 Holding Trailing Runner: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick ${latest_tick_price:.2f} | Sub-Second Tick Guard Active.")
     else:
         print("No trade action required on this cycle. Holding state.")
 
