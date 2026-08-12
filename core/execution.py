@@ -82,7 +82,7 @@ def run_strategy_cycle():
     tl = initialize_client()
     instrument_id = tl.get_instrument_id_from_symbol_name(SYMBOL)
 
-    raw_history = tl.get_price_history(instrument_id, resolution="1D", lookback_period="300D")
+    raw_history = tl.get_price_history(instrument_id, resolution="15m", lookback_period="5D")
     df = pd.DataFrame(raw_history)
     df = calculate_indicators(df)
 
@@ -90,17 +90,24 @@ def run_strategy_cycle():
     prev_close = current_row['close']
     current_hma = current_row['hma_250']
 
-    # Strict $50 Dollar-Based Stop Loss calculation:
-    # 0.10 lots = 10 oz of Gold. $50 max loss / 10 oz = $5.00 price stop distance
+    current_atr = current_row['atr_14'] if 'atr_14' in current_row and not np.isnan(current_row['atr_14']) else 8.0
+    
+    # Intraday Volatility Stop Loss Distance (gives Gold $15-$25 price room so normal 5m/15m noise won't stop it out)
+    price_stop_distance = max(15.0, min(25.0, round(current_atr * 2.5, 2)))
+
+    # Dynamic Lot Sizing to guarantee STRICT $50 Max Loss:
+    # QTY = $50 / (price_stop_distance * 100) -> e.g. $50 / ($25 * 100) = 0.02 lots!
     contract_size = 100.0
-    price_stop_distance = MAX_LOSS_DOLLARS / (POSITION_QTY * contract_size)
-    stop_loss_price = round(prev_close - price_stop_distance, 2)
+    calculated_qty = max(0.01, round(MAX_LOSS_DOLLARS / (price_stop_distance * contract_size), 2))
+    actual_max_risk = calculated_qty * contract_size * price_stop_distance
 
     print(f"--- Strategy Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${prev_close:.2f}")
     print(f"HMA-250 Trend Filter: {current_hma:.2f}")
-    print(f"Strict Risk Budget: ${MAX_LOSS_DOLLARS:.2f} Max Loss")
-    print(f"Exact Stop Loss Price: ${stop_loss_price:.2f} (${price_stop_distance:.2f} price distance)")
+    print(f"ATR-14 Volatility: ${current_atr:.2f}")
+    print(f"Volatility Stop Distance: ${price_stop_distance:.2f} price points")
+    print(f"Dynamically Scaled Position Size: {calculated_qty} lots")
+    print(f"Strict Max Dollar Risk: ${actual_max_risk:.2f} (Capped at ${MAX_LOSS_DOLLARS:.2f})")
 
     is_bullish_regime = prev_close > current_hma if not np.isnan(current_hma) else True
 
@@ -134,23 +141,23 @@ def run_strategy_cycle():
         return
 
     if is_bullish_regime and not has_open_position:
-        print(f">>> Signal Triggered: Bullish Regime Confirmed. Opening Long Position for {POSITION_QTY} lots...")
+        print(f">>> Signal Triggered: Bullish Regime Confirmed. Opening Long Position for {calculated_qty} lots...")
 
-        tp_offset = round(price_stop_distance * 3.0, 2)  # 3:1 R:R (+$150.00 profit target on 0.10 lots)
+        tp_offset = round(price_stop_distance * 2.5, 2)  # 2.5:1 R:R target
 
         tl.create_order(
             instrument_id=instrument_id,
-            quantity=float(POSITION_QTY),
+            quantity=float(calculated_qty),
             side="buy",
             type_="market",
-            stop_loss=float(round(price_stop_distance, 2)),
+            stop_loss=float(price_stop_distance),
             stop_loss_type="trailingOffset",
             take_profit=float(tp_offset),
             take_profit_type="offset"
         )
-        print(f"✅ Placed BUY order for {POSITION_QTY} lots of {SYMBOL}:")
-        print(f"   • Trailing Stop Loss: -${price_stop_distance:.2f} offset (Max Risk: -${MAX_LOSS_DOLLARS:.2f})")
-        print(f"   • Take Profit Target: +${tp_offset:.2f} offset (Target Profit: +${MAX_LOSS_DOLLARS * 3:.2f})")
+        print(f"✅ Placed BUY order for {calculated_qty} lots of {SYMBOL}:")
+        print(f"   • Trailing Stop Loss: -${price_stop_distance:.2f} offset (Max Risk: -${actual_max_risk:.2f})")
+        print(f"   • Take Profit Target: +${tp_offset:.2f} offset (Target Profit: +${calculated_qty * contract_size * tp_offset:.2f})")
 
     elif has_open_position and not is_bullish_regime:
         print(">>> Exit Triggered: Trend reversed below HMA-250. Closing Position.")
