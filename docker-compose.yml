@@ -11,6 +11,18 @@ services:
       - .:/app
     entrypoint: ["python", "core/execution.py"]
 
+  wolf-algo-webhook:
+    build: .
+    container_name: wolf_algo_tradingview_webhook
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    entrypoint: ["python", "core/webhook.py"]
+
   wolf-algo:
     build:
       context: .
