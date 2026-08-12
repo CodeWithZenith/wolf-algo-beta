@@ -257,17 +257,17 @@ def run_strategy_cycle():
     contract_size = 100.0
 
     # Lot Sizing & Dynamic Risk Scale based on Account Balance
-    # Base: 0.01 lots = $10 risk ($10 SL distance), max 0.05 lots = $50 risk until balance > $5,000
+    # Base: 0.10 lots (10 oz Gold / $50 max risk / $5.00 SL price room) for $5,000 balance
     if cash_balance <= 5000.0:
-        calculated_qty = 0.01  # Conservative base 0.01 lot ($10 risk)
+        calculated_qty = 0.10  # User Preferred 0.10 Lot Base (+ $45.00 wins per $4.50 move!)
     else:
-        # Scale lot size as account balance compounds beyond $5,000
-        calculated_qty = max(0.01, round((cash_balance / 5000.0) * 0.05, 2))
+        # Scale lot size smoothly as account balance compounds beyond $5,000
+        calculated_qty = max(0.10, round((cash_balance / 5000.0) * 0.10, 2))
 
-    # Dollar Risk determined directly by Lot Size ($1,000 risk per 1.00 lot | $10 risk per 0.01 lot)
-    actual_max_risk = round(calculated_qty * 1000.0, 2)
-    # Trailing Stop Loss price distance derived from lot size ($10.00 price points)
-    price_stop_distance = round(actual_max_risk / (calculated_qty * contract_size), 2)
+    # Dollar Risk determined by Lot Size ($50 max risk at 0.10 lots)
+    actual_max_risk = 50.0 if calculated_qty <= 0.10 else round(calculated_qty * 500.0, 2)
+    # Trailing Stop Loss price distance ($5.00 price points room for 0.10 lots)
+    price_stop_distance = max(3.50, min(10.0, round(actual_max_risk / (calculated_qty * contract_size), 2)))
 
     print(f"--- Autonomous MTF Trade Quality Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f}")
