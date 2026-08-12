@@ -106,8 +106,9 @@ def run_strategy_cycle():
     # 3. MTF Confluence: Both Macro (1D) AND Fast Intraday (5m HMA-20) MUST BE BULLISH
     is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish
 
-    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 5.0
-    price_stop_distance = max(15.0, min(25.0, round(current_atr * 2.5, 2)))
+    current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 8.0
+    # Wide Volatility Trailing Stop Distance: $35.00 to $50.00 Gold price points for massive breathing room
+    price_stop_distance = max(35.0, min(50.0, round(current_atr * 5.0, 2)))
 
     contract_size = 100.0
     calculated_qty = max(0.01, round(MAX_LOSS_DOLLARS / (price_stop_distance * contract_size), 2))
