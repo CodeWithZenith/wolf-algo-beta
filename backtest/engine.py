@@ -1,0 +1,473 @@
+"""
+Wolf Algo — Backtest Engine (Optimized, v2)
+=============================================
+Pre-computes ALL indicators vectorized upfront, then does a fast bar-by-bar
+replay. Supports:
+  - Risk-based position sizing (% of equity per trade)
+  - Configurable exit strategy: TP1, TP2, TP3, or trailing stop
+  - Trend-alignment filter via long-period HMA
+  - Oscillator confluence as hard or soft filter
+"""
+
+import numpy as np
+import pandas as pd
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional
+
+from config.settings import AppConfig, load_config
+from core.agent import TradingAgent
+from core.execution import MockBroker
+from risk.models import AccountRiskState, Direction, Position, Order, OrderType, TradeRiskEnvelope
+from strategies.base import Strategy, Signal
+from strategies.wolf_algo import WolfAlgoStrategy
+from strategies.wolf_oscillator import WolfOscillator
+from data.feed import DataFeed, YFinanceFeed
+from utils.logger import get_logger, LogTag, log_event
+from utils.helpers import (
+    find_pivot_highs, find_pivot_lows, calculate_atr,
+    hull_moving_average, crossover, crossunder,
+)
+
+
+class BacktestEngine:
+    """
+    Optimized backtest engine with risk-based position sizing
+    and configurable exit strategies.
+    """
+
+    def __init__(
+        self,
+        config: Optional[AppConfig] = None,
+        strategy: Optional[Strategy] = None,
+        use_oscillator_filter: bool = True,
+        oscillator_hard_filter: bool = True,
+        exit_target: str = "tp3",  # "tp1", "tp2", "tp3", "trailing"
+        use_trend_filter: bool = True,
+        trend_filter_period: int = 100,
+        risk_per_trade_pct: float = 1.0,
+        long_only: bool = False,
+        **kwargs,
+    ):
+        self.config = config or load_config()
+        self.logger = get_logger(
+            name="wolf_algo.backtest",
+            level=self.config.logging.level,
+            fmt="console",
+        )
+        self.strategy = strategy or WolfAlgoStrategy(
+            sensitivity_mode=self.config.strategy.sensitivity_mode,
+            atr_period=self.config.strategy.atr_period,
+            rr_ratios=self.config.strategy.rr_ratios,
+            pivot_lookback=self.config.strategy.pivot_lookback,
+            sl_buffer_atr_mult=self.config.strategy.sl_buffer_atr_mult,
+        )
+        self.use_oscillator = use_oscillator_filter
+        self.oscillator_hard_filter = oscillator_hard_filter
+        self.oscillator = WolfOscillator() if use_oscillator_filter else None
+        self.exit_target = exit_target
+        self.use_trend_filter = use_trend_filter
+        self.trend_filter_period = trend_filter_period
+        self.risk_per_trade_pct = risk_per_trade_pct
+        self.long_only = long_only
+
+        broker = MockBroker(
+            slippage_ticks=self.config.execution.slippage_ticks,
+            commission_per_side=self.config.execution.commission_per_side,
+            logger=self.logger,
+        )
+        broker.set_balance(self.config.account.starting_equity)
+
+        self.starting_equity = self.config.account.starting_equity
+        self.equity = self.config.account.starting_equity
+        self.peak_equity = self.equity
+        self.commission = self.config.execution.commission_per_side
+        self.slippage = self.config.execution.slippage_ticks
+
+        # Trade tracking
+        self.trade_log: List[Dict] = []
+        self.equity_curve: List[Dict] = []
+        self.current_position: Optional[Dict] = None
+        self.daily_pnl = 0.0
+        self.current_date = None
+
+    def run(
+        self,
+        bars: pd.DataFrame,
+        symbol: str = "SPY",
+    ) -> Dict:
+        """Execute the backtest with proper position sizing."""
+        log_event(
+            self.logger, "info", LogTag.BACKTEST,
+            f"Starting backtest: {symbol} | {len(bars)} bars | "
+            f"Strategy: {self.strategy.name} | "
+            f"Equity: ${self.starting_equity:,.2f} | "
+            f"Risk/trade: {self.risk_per_trade_pct}%",
+        )
+
+        # ══════════════════════════════════════════════
+        # PHASE 1: Pre-compute ALL indicators
+        # ══════════════════════════════════════════════
+        log_event(self.logger, "info", LogTag.BACKTEST, "Phase 1: Pre-computing indicators...")
+
+        df = self.strategy.compute_indicators(bars)
+
+        # Pivot levels
+        pivot_highs = find_pivot_highs(df["High"], self.config.strategy.pivot_lookback)
+        pivot_lows = find_pivot_lows(df["Low"], self.config.strategy.pivot_lookback)
+
+        atr = calculate_atr(df["High"], df["Low"], df["Close"], self.config.strategy.atr_period)
+
+        last_sup = pivot_lows.ffill()
+        last_res = pivot_highs.ffill()
+        recent_low = df["Low"].rolling(20, min_periods=1).min()
+        recent_high = df["High"].rolling(20, min_periods=1).max()
+
+        # Trend filter: long-period HMA
+        trend_hma = hull_moving_average(df["Close"], self.trend_filter_period) if self.use_trend_filter else None
+
+        # Oscillator pre-compute
+        osc_df = None
+        if self.use_oscillator and self.oscillator:
+            log_event(self.logger, "info", LogTag.BACKTEST, "Pre-computing oscillator...")
+            osc_df = self.oscillator.compute(bars)
+
+        log_event(self.logger, "info", LogTag.BACKTEST, "Phase 1 complete. Starting replay...")
+
+        # ══════════════════════════════════════════════
+        # PHASE 2: Bar-by-bar replay with position sizing
+        # ══════════════════════════════════════════════
+        warmup = max(self.strategy.warmup_period(), self.trend_filter_period + 10)
+        total_bars = len(df)
+        rr_ratios = self.config.strategy.rr_ratios
+        sl_buffer_mult = self.config.strategy.sl_buffer_atr_mult
+
+        for i in range(warmup, total_bars):
+            bar_time = df.index[i] if isinstance(df.index[i], datetime) else pd.Timestamp(df.index[i])
+            current_close = df["Close"].iloc[i]
+            current_high = df["High"].iloc[i]
+            current_low = df["Low"].iloc[i]
+            current_atr_val = atr.iloc[i] if not np.isnan(atr.iloc[i]) else 0
+
+            # Reset daily PnL on new date
+            bar_date = bar_time.date() if hasattr(bar_time, 'date') else bar_time
+            if self.current_date != bar_date:
+                self.daily_pnl = 0.0
+                self.current_date = bar_date
+
+            # ── Check exits on existing position ──
+            if self.current_position is not None:
+                pos = self.current_position
+                closed = False
+
+                is_exit_long = bool(df["ExitLong"].iloc[i]) if "ExitLong" in df.columns else False
+                is_exit_short = bool(df["ExitShort"].iloc[i]) if "ExitShort" in df.columns else False
+                is_buy = bool(df["BuySignal"].iloc[i])
+                is_sell = bool(df["SellSignal"].iloc[i])
+
+                if pos["direction"] == Direction.LONG:
+                    # 1. SL check
+                    if current_low <= pos["stop_loss"]:
+                        self._close_position(pos["stop_loss"], bar_time)
+                        closed = True
+                    # 2. TP check based on exit_target
+                    elif self.exit_target != "trailing":
+                        tp_price = self._get_exit_tp(pos, current_high, Direction.LONG)
+                        if tp_price is not None:
+                            self._close_position(tp_price, bar_time)
+                            closed = True
+                    # 3. Exit on TrendDir flip (sell signal)
+                    if not closed and is_sell:
+                        self._close_position(current_close, bar_time)
+                        closed = True
+                    # 4. Trailing stop update (move SL up)
+                    if not closed and self.exit_target == "trailing":
+                        new_trail = current_close - (current_atr_val * self.strategy.atr_mult)
+                        if new_trail > pos["stop_loss"]:
+                            pos["stop_loss"] = new_trail
+
+                elif pos["direction"] == Direction.SHORT:
+                    # 1. SL check
+                    if current_high >= pos["stop_loss"]:
+                        self._close_position(pos["stop_loss"], bar_time)
+                        closed = True
+                    # 2. TP check based on exit_target
+                    elif self.exit_target != "trailing":
+                        tp_price = self._get_exit_tp(pos, current_low, Direction.SHORT)
+                        if tp_price is not None:
+                            self._close_position(tp_price, bar_time)
+                            closed = True
+                    # 3. Exit on TrendDir flip (buy signal)
+                    if not closed and is_buy:
+                        self._close_position(current_close, bar_time)
+                        closed = True
+                    # 4. Trailing stop update (move SL down)
+                    if not closed and self.exit_target == "trailing":
+                        new_trail = current_close + (current_atr_val * self.strategy.atr_mult)
+                        if new_trail < pos["stop_loss"]:
+                            pos["stop_loss"] = new_trail
+
+            # ── Check for new signals (only if flat) ──
+            if self.current_position is None:
+                is_buy = bool(df["BuySignal"].iloc[i])
+                is_sell = bool(df["SellSignal"].iloc[i])
+
+                if is_buy or is_sell:
+                    direction = Direction.LONG if is_buy else Direction.SHORT
+
+                    if self.long_only and direction == Direction.SHORT:
+                        continue
+
+                    # ── Trend filter ──
+                    if self.use_trend_filter and trend_hma is not None:
+                        trend_val = trend_hma.iloc[i]
+                        if not np.isnan(trend_val):
+                            if direction == Direction.LONG and current_close < trend_val:
+                                continue  # Skip long signals below trend
+                            if direction == Direction.SHORT and current_close > trend_val:
+                                continue  # Skip short signals above trend
+
+                    # ── Oscillator filter ──
+                    if osc_df is not None and self.oscillator_hard_filter:
+                        bull_conf = bool(osc_df["BullConfluence"].iloc[i])
+                        bear_conf = bool(osc_df["BearConfluence"].iloc[i])
+                        if direction == Direction.LONG and not bull_conf:
+                            continue  # Hard filter: skip
+                        if direction == Direction.SHORT and not bear_conf:
+                            continue
+
+                    # ── Daily loss limit check ──
+                    if self.daily_pnl <= -self.config.risk.hard_daily_loss_limit:
+                        continue
+
+                    # ── Compute SL using Wolf Algo TrailStop indicator level ──
+                    entry_price = current_close
+                    trail_stop_val = df["TrailStop"].iloc[i] if "TrailStop" in df.columns else np.nan
+
+                    if not np.isnan(trail_stop_val) and trail_stop_val > 0:
+                        stop_loss = trail_stop_val
+                    else:
+                        mult = getattr(self.strategy, "atr_mult", 2.5)
+                        if direction == Direction.LONG:
+                            stop_loss = entry_price - (current_atr_val * mult)
+                        else:
+                            stop_loss = entry_price + (current_atr_val * mult)
+
+                    # Ensure SL is on proper side
+                    if direction == Direction.LONG and stop_loss >= entry_price:
+                        stop_loss = entry_price - (current_atr_val * 2.5)
+                    elif direction == Direction.SHORT and stop_loss <= entry_price:
+                        stop_loss = entry_price + (current_atr_val * 2.5)
+
+                    risk_dist = abs(entry_price - stop_loss)
+                    if risk_dist <= 0:
+                        continue
+
+                    # ── Position sizing based on risk with max leverage cap ──
+                    max_risk_dollars = self.equity * (self.risk_per_trade_pct / 100.0)
+                    position_size = int(max_risk_dollars / risk_dist)
+                    
+                    # Cap position value to max 1.0x account equity (no excessive leverage)
+                    max_shares_by_equity = max(int(self.equity / entry_price), 1)
+                    position_size = min(position_size, max_shares_by_equity)
+
+                    if position_size < 1:
+                        continue
+
+                    # TP levels
+                    tp_levels = []
+                    for ratio in rr_ratios:
+                        if direction == Direction.LONG:
+                            tp_levels.append(entry_price + risk_dist * ratio)
+                        else:
+                            tp_levels.append(entry_price - risk_dist * ratio)
+
+                    # Apply slippage to entry
+                    if direction == Direction.LONG:
+                        fill_price = entry_price + self.slippage
+                    else:
+                        fill_price = entry_price - self.slippage
+
+                    # Commission
+                    self.equity -= self.commission
+
+                    self.current_position = {
+                        "direction": direction,
+                        "entry_price": fill_price,
+                        "stop_loss": stop_loss,
+                        "tp_levels": tp_levels,
+                        "quantity": position_size,
+                        "entry_time": bar_time,
+                        "symbol": symbol,
+                    }
+
+            # Record equity
+            unrealized = 0.0
+            if self.current_position is not None:
+                pos = self.current_position
+                if pos["direction"] == Direction.LONG:
+                    unrealized = (current_close - pos["entry_price"]) * pos["quantity"]
+                else:
+                    unrealized = (pos["entry_price"] - current_close) * pos["quantity"]
+
+            self.equity_curve.append({
+                "timestamp": str(bar_time),
+                "equity": round(self.equity + unrealized, 2),
+            })
+
+            # Progress every 1000 bars
+            if (i - warmup) % 1000 == 0 and i > warmup:
+                pct = (i - warmup) / (total_bars - warmup) * 100
+                log_event(
+                    self.logger, "info", LogTag.BACKTEST,
+                    f"Progress: {pct:.0f}% | Bar {i}/{total_bars} | "
+                    f"Equity: ${self.equity:,.2f} | Trades: {len(self.trade_log)}",
+                )
+
+        # Close any open position at end
+        if self.current_position is not None:
+            self._close_position(df["Close"].iloc[-1], df.index[-1])
+
+        results = self._compute_metrics(symbol)
+
+        log_event(
+            self.logger, "info", LogTag.BACKTEST,
+            f"Backtest complete: {results['total_trades']} trades | "
+            f"Final equity: ${results['final_equity']:,.2f} | "
+            f"Return: {results['total_return_pct']:.2f}% | "
+            f"Sharpe: {results['sharpe_ratio']:.2f}",
+        )
+
+        return results
+
+    def _close_position(self, exit_price: float, exit_time) -> float:
+        """Close current position, record trade, update equity."""
+        pos = self.current_position
+        if pos is None:
+            return 0.0
+
+        # Apply slippage to exit
+        if pos["direction"] == Direction.LONG:
+            actual_exit = exit_price - self.slippage
+        else:
+            actual_exit = exit_price + self.slippage
+
+        # PnL
+        if pos["direction"] == Direction.LONG:
+            pnl = (actual_exit - pos["entry_price"]) * pos["quantity"]
+        else:
+            pnl = (pos["entry_price"] - actual_exit) * pos["quantity"]
+
+        # Commission on exit
+        pnl -= self.commission
+
+        self.equity += pnl
+        self.daily_pnl += pnl
+        self.peak_equity = max(self.peak_equity, self.equity)
+
+        self.trade_log.append({
+            "symbol": pos["symbol"],
+            "direction": pos["direction"].value,
+            "entry_price": round(pos["entry_price"], 2),
+            "exit_price": round(actual_exit, 2),
+            "stop_loss": round(pos["stop_loss"], 2),
+            "quantity": pos["quantity"],
+            "pnl": round(pnl, 2),
+            "entry_time": str(pos["entry_time"]) if pos.get("entry_time") else None,
+            "exit_time": str(exit_time) if exit_time else None,
+        })
+
+        self.current_position = None
+        return pnl
+
+    def _get_exit_tp(self, pos: Dict, extreme_price: float, direction: Direction) -> Optional[float]:
+        """Check if TP target is hit based on exit_target setting."""
+        tp_levels = pos["tp_levels"]
+
+        if self.exit_target == "trailing":
+            return None  # Trailing uses SL only, no fixed TP
+
+        # Determine which TP to target
+        if self.exit_target == "tp1" and len(tp_levels) >= 1:
+            tp = tp_levels[0]
+        elif self.exit_target == "tp2" and len(tp_levels) >= 2:
+            tp = tp_levels[1]
+        elif self.exit_target == "tp3" and len(tp_levels) >= 3:
+            tp = tp_levels[2]
+        else:
+            tp = tp_levels[-1] if tp_levels else None
+
+        if tp is None:
+            return None
+
+        if direction == Direction.LONG and extreme_price >= tp:
+            return tp
+        elif direction == Direction.SHORT and extreme_price <= tp:
+            return tp
+
+        return None
+
+    def _compute_metrics(self, symbol: str) -> Dict:
+        """Compute comprehensive performance metrics."""
+        trades = self.trade_log
+
+        eq_curve = pd.DataFrame(self.equity_curve)
+        if not eq_curve.empty:
+            eq_curve["timestamp"] = pd.to_datetime(eq_curve["timestamp"], utc=True)
+            eq_curve.set_index("timestamp", inplace=True)
+
+        total_return = self.equity - self.starting_equity
+        total_return_pct = (total_return / self.starting_equity) * 100
+
+        total_trades = len(trades)
+        winning_trades = sum(1 for t in trades if t["pnl"] > 0)
+        losing_trades = sum(1 for t in trades if t["pnl"] <= 0)
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+        if not eq_curve.empty:
+            peak = eq_curve["equity"].cummax()
+            dd = (eq_curve["equity"] - peak) / peak * 100
+            max_drawdown_pct = abs(dd.min())
+        else:
+            max_drawdown_pct = 0.0
+
+        gross_profit = sum(t["pnl"] for t in trades if t["pnl"] > 0)
+        gross_loss = abs(sum(t["pnl"] for t in trades if t["pnl"] <= 0))
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+
+        if not eq_curve.empty and len(eq_curve) > 1:
+            daily_returns = eq_curve["equity"].pct_change().dropna()
+            if len(daily_returns) > 0 and daily_returns.std() > 0:
+                sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
+            else:
+                sharpe = 0.0
+        else:
+            sharpe = 0.0
+
+        wins = [t["pnl"] for t in trades if t["pnl"] > 0]
+        losses = [t["pnl"] for t in trades if t["pnl"] <= 0]
+        avg_win = np.mean(wins) if wins else 0.0
+        avg_loss = np.mean(losses) if losses else 0.0
+
+        return {
+            "symbol": symbol,
+            "strategy": self.strategy.name,
+            "starting_equity": self.starting_equity,
+            "final_equity": round(self.equity, 2),
+            "total_return": round(total_return, 2),
+            "total_return_pct": round(total_return_pct, 2),
+            "total_trades": total_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "win_rate_pct": round(win_rate, 2),
+            "profit_factor": round(profit_factor, 2),
+            "sharpe_ratio": round(sharpe, 2),
+            "max_drawdown_pct": round(max_drawdown_pct, 2),
+            "gross_profit": round(gross_profit, 2),
+            "gross_loss": round(gross_loss, 2),
+            "avg_win": round(avg_win, 2),
+            "avg_loss": round(avg_loss, 2),
+            "avg_rr": round(abs(avg_win / avg_loss), 2) if avg_loss != 0 else 0.0,
+            "trade_log": trades,
+            "equity_curve": eq_curve.to_dict() if not eq_curve.empty else {},
+        }

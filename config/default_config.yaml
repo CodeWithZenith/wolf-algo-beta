@@ -1,0 +1,40 @@
+# ============================================
+# Wolf Algo — Default Configuration (Optimized)
+# ============================================
+
+broker:
+  api_url: "https://demo.tradovateapi.com/v1"
+  timeout_seconds: 10
+  use_mock: true
+
+risk:
+  max_drawdown_pct: 25.0         # Max account drawdown halt (%)
+  max_loss_per_trade_pct: 3.0    # Max risk per trade as % of account equity
+  hard_daily_loss_limit: 1500.0  # Daily loss cap ($)
+  max_open_positions: 3          # Max concurrent open positions
+  require_structural_stop: true  # Reject orders with no stop-loss
+  long_only: true                # Long-only mode for equity indices (SPY, QQQ)
+
+strategy:
+  sensitivity_mode: "swing_trader"  # scalper | day_trader | swing_trader
+  atr_period: 14
+  atr_mult: 6.0                  # Wide ATR trailing stop to absorb daily noise
+  trend_filter_period: 250       # HMA-250 macro regime filter
+  exit_target: "trailing"        # trailing | tp1 | tp2 | tp3
+  rr_ratios: [1.0, 2.0, 3.0]
+  pivot_lookback: 10
+  sl_buffer_atr_mult: 0.2
+
+execution:
+  slippage_ticks: 1
+  commission_per_side: 2.50
+  default_order_type: "MARKET"
+
+account:
+  starting_equity: 25000.0
+  currency: "USD"
+
+logging:
+  level: "INFO"
+  format: "json"
+  file: "logs/wolf_algo.log"

@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  wolf-algo-bot:
+    build: .
+    container_name: wolf_algo_execution_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    entrypoint: ["python", "core/execution.py"]
+
+  wolf-algo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wolf_algo_agent
+    environment:
+      - BROKER_API_KEY=${BROKER_API_KEY:-}
+      - BROKER_API_SECRET=${BROKER_API_SECRET:-}
+      - BROKER_API_URL=${BROKER_API_URL:-https://demo.tradovateapi.com/v1}
+      - ACCOUNT_ID=${ACCOUNT_ID:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./config:/app/config
+    restart: unless-stopped
+
+  wolf-algo-sweep:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wolf_algo_sweep
+    entrypoint: ["python", "-m", "backtest.sweep"]
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+
+  wolf-algo-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wolf_algo_tests
+    entrypoint: ["python", "-m", "pytest", "tests/", "-v"]
