@@ -166,6 +166,14 @@ def calculate_indicators(df: pd.DataFrame, hma_period: int = 20) -> pd.DataFrame
     df['warrior_coc_bullish'] = is_down_bar & (close > high.shift(1)) & (close > df['hma'])
     df['warrior_coc_bearish'] = (~is_down_bar) & (close < low.shift(1)) & (close < df['hma'])
 
+    # Machine Learning Adaptive SuperTrend (AlgoAlpha K-Means Volatility Centroid)
+    atr_10 = df['atr_14'] if 'atr_14' in df else (high - low).rolling(10).mean()
+    atr_p75 = atr_10.rolling(100).quantile(0.75).fillna(8.0)
+    st_lower = (high + low) / 2.0 - (3.0 * atr_p75)
+    st_upper = (high + low) / 2.0 + (3.0 * atr_p75)
+    df['ml_supertrend_bullish'] = close > st_lower
+    df['ml_supertrend_bearish'] = close < st_upper
+
     return df
 
 
@@ -182,11 +190,12 @@ def evaluate_trade_probability(
     is_sweep_active: bool = False,
     is_ob_active: bool = False,
     is_warrior_active: bool = False,
+    is_ml_supertrend_active: bool = False,
     min_probability_threshold: int = 75
 ) -> tuple:
     """
     Autonomous Trade Probability & Quality Gatekeeper (0 to 100 Score).
-    Evaluates quantitative probability factors including Warrior Momentum & CoC:
+    Evaluates quantitative probability factors including ML Adaptive SuperTrend:
       1. Macro-Intraday Trend Alignment (+25 pts)
       2. Hyper Wave Momentum (+20 pts)
       3. Smart Money Flow Accumulation (+20 pts)
@@ -197,6 +206,7 @@ def evaluate_trade_probability(
       8. Liquidity Sweep / Judas Swing (+15 pts)
       9. Order Block Retest (+15 pts)
       10. Warrior Hammer / CoC Momentum (+15 pts)
+      11. ML Adaptive SuperTrend (+15 pts)
     """
     score = 0
     factors = []
@@ -240,6 +250,10 @@ def evaluate_trade_probability(
     if is_warrior_active:
         score += 15
         factors.append("Warrior Hammer / CoC (+15)")
+
+    if is_ml_supertrend_active:
+        score += 15
+        factors.append("ML Adaptive SuperTrend (+15)")
 
     approved = score >= min_probability_threshold
     return (approved, score, factors)
@@ -289,6 +303,8 @@ def run_strategy_cycle():
     is_ob_bullish = bool(intraday_row.get('ob_bullish', False))
     is_warrior_bullish = bool(intraday_row.get('warrior_hammer', False)) or bool(intraday_row.get('warrior_coc_bullish', False))
     is_warrior_bearish = bool(intraday_row.get('warrior_star', False)) or bool(intraday_row.get('warrior_coc_bearish', False))
+    is_ml_st_bullish = bool(intraday_row.get('ml_supertrend_bullish', False))
+    is_ml_st_bearish = bool(intraday_row.get('ml_supertrend_bearish', False))
 
     # 3. Autonomous Trade Quality & Probability Evaluation (0-100 Score)
     prob_approved, prob_score, prob_factors = evaluate_trade_probability(
@@ -304,6 +320,7 @@ def run_strategy_cycle():
         is_sweep_active=is_sweep_bullish or is_sweep_bearish,
         is_ob_active=is_ob_bullish or is_ob_bearish,
         is_warrior_active=is_warrior_bullish or is_warrior_bearish,
+        is_ml_supertrend_active=is_ml_st_bullish or is_ml_st_bearish,
         min_probability_threshold=80
     )
 
