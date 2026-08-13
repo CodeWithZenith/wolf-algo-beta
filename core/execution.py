@@ -431,10 +431,31 @@ def run_strategy_cycle():
 
     contract_size = 100.0
 
-    # Patient Trader-Mindset Sizing: Locked to 0.05 Lots Base ($20 hard max risk / $4.00 SL room)
-    calculated_qty = float(os.getenv("POSITION_QTY", "0.05"))
-    actual_max_risk = round(calculated_qty * 100.0 * 4.00, 2)  # Hard -$20.00 max risk per trade at 0.05 lots
-    price_stop_distance = 4.00  # $4.00 Gold price points room ($20 max loss at 0.05 lots)
+    # ── Universal Embedded Account Protection Matrix (Adapts to ANY Account Size & Broker) ──
+    if cash_balance <= 300.0:
+        # Micro Deposit ($100-$300 Equity) -> 0.01 lot ($2.00 max risk / 1.0% risk cap)
+        calculated_qty = 0.01
+        actual_max_risk = 2.00
+        price_stop_distance = 2.00
+        effective_daily_loss_limit = 10.0
+    elif cash_balance <= 1000.0:
+        # Small Account ($300-$1,000 Equity) -> 0.02 lot ($4.00 max risk)
+        calculated_qty = 0.02
+        actual_max_risk = 4.00
+        price_stop_distance = 2.00
+        effective_daily_loss_limit = 25.0
+    elif cash_balance <= 10000.0:
+        # Standard Account ($1k-$10k Equity) -> 0.05 lot ($20.00 max risk)
+        calculated_qty = 0.05
+        actual_max_risk = 20.0
+        price_stop_distance = 4.00
+        effective_daily_loss_limit = 50.0
+    else:
+        # Large Account / $25k Tradovate ($500 Static Drawdown Protection)
+        calculated_qty = float(os.getenv("POSITION_QTY", "0.05"))
+        actual_max_risk = 20.0
+        price_stop_distance = 4.00
+        effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "150.0"))
 
     # Patient Confluence Filter: Strict Alignment with 1D Trend + 5m HMA + Wolf Osc Wave1/Wave2 + MFI Money Flow
     is_intraday_bearish = intraday_close < intraday_hma if not np.isnan(intraday_hma) else False
@@ -466,8 +487,8 @@ def run_strategy_cycle():
     print(f"Account Balance: ${cash_balance:,.2f} | Today PnL: ${today_net:,.2f}")
 
     # 1. Hard daily loss circuit breaker check
-    if today_net <= -HARD_DAILY_LOSS_LIMIT:
-        msg = f"🛑 Daily Loss Circuit Breaker Triggered (${today_net:.2f} <= -${HARD_DAILY_LOSS_LIMIT:.2f}). Trading Halted for Today."
+    if today_net <= -effective_daily_loss_limit:
+        msg = f"🛑 Daily Loss Circuit Breaker Triggered (${today_net:.2f} <= -${effective_daily_loss_limit:.2f}). Trading Halted for Today."
         print(msg)
         send_discord_alert("🛑 Circuit Breaker Triggered", msg, color=0xE74C3C)
         return
