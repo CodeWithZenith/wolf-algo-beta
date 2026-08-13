@@ -278,6 +278,7 @@ def evaluate_trade_probability(
     is_sweep_active: bool = False,
     is_ob_active: bool = False,
     is_warrior_active: bool = False,
+    is_cvd_absorption: bool = False,
     min_probability_threshold: int = 75
 ) -> tuple:
     """
@@ -342,6 +343,10 @@ def evaluate_trade_probability(
     if is_warrior_active:
         score += 15
         factors.append("Warrior Hammer / CoC (+15)")
+
+    if is_cvd_absorption:
+        score += 15
+        factors.append("Order Flow Delta Absorption (+15)")
 
     approved = score >= min_probability_threshold
     return (approved, score, factors)
@@ -409,7 +414,21 @@ def run_strategy_cycle():
     is_ml_st_bullish = bool(intraday_row.get('ml_supertrend_bullish', False))
     is_ml_st_bearish = bool(intraday_row.get('ml_supertrend_bearish', False))
 
-    # 3. Autonomous Trade Quality & Probability Evaluation (0-100 Score)
+    # 3. Order Flow Delta Absorption & AI Market Regime Evaluation
+    from core.orderflow import detect_delta_absorption
+    from core.ai_scorer import ai_scorer
+
+    is_bull_abs, is_bear_abs, of_metrics = detect_delta_absorption(df_intraday)
+    is_cvd_abs = is_bull_abs or is_bear_abs
+
+    adaptive_min_threshold, ai_regime_name, ai_metrics = ai_scorer.evaluate_market_regime(
+        df_intraday=df_intraday,
+        current_atr=current_atr,
+        is_macro_bullish=is_macro_bullish,
+        is_intraday_bullish=is_intraday_bullish
+    )
+
+    # 4. Autonomous Trade Quality & Probability Evaluation (0-100 Score with Dynamic AI Threshold)
     prob_approved, prob_score, prob_factors = evaluate_trade_probability(
         is_macro_bullish=is_macro_bullish,
         is_intraday_bullish=is_intraday_bullish,
@@ -423,7 +442,8 @@ def run_strategy_cycle():
         is_sweep_active=is_sweep_bullish or is_sweep_bearish,
         is_ob_active=is_ob_bullish or is_ob_bearish,
         is_warrior_active=is_warrior_bullish or is_warrior_bearish,
-        min_probability_threshold=80
+        is_cvd_absorption=is_cvd_abs,
+        min_probability_threshold=adaptive_min_threshold
     )
 
     EXECUTION_MODE = os.getenv("EXECUTION_MODE", "MAX_PROFIT").upper()
