@@ -88,11 +88,14 @@ def is_in_news_blackout_window() -> bool:
 
 
 def is_in_core_session() -> bool:
-    """Check if current time is within London or NY core trading session (07:00 UTC to 21:00 UTC / 3 AM to 5 PM EST)."""
+    """Trade 24/5 continuously, excluding only the 5:00 PM - 6:00 PM EST CME/Forex daily settlement window."""
     if not SESSION_FILTER_ENABLED:
         return True
     now_utc = datetime.utcnow()
-    return 7 <= now_utc.hour < 21
+    # 5:00 PM to 6:00 PM EST is 22:00 to 23:00 UTC (Exchange Rollover Window)
+    if now_utc.hour == 22:
+        return False
+    return True
 
 
 def initialize_client() -> TLAPI:
