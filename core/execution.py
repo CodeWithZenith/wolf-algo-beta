@@ -144,6 +144,17 @@ def calculate_indicators(df: pd.DataFrame, hma_period: int = 20) -> pd.DataFrame
     df['reversal_bullish'] = (w1.shift(1) < -35.0) & (w1 > w2) & (close > df['hma'])
     df['reversal_bearish'] = (w1.shift(1) > 35.0) & (w1 < w2) & (close < df['hma'])
 
+    # Institutional Liquidity Sweep (Asian High/Low Judas Swing / Turtle Soup)
+    recent_high_20 = high.rolling(20).max().shift(1)
+    recent_low_20 = low.rolling(20).min().shift(1)
+    df['liquidity_sweep_bullish'] = (low < recent_low_20) & (close > recent_low_20)  # Swept low & reclaimed
+    df['liquidity_sweep_bearish'] = (high > recent_high_20) & (close < recent_high_20)  # Swept high & reclaimed
+
+    # Institutional Order Block (OB) Retest Engine
+    is_down_bar = close.shift(1) < df['open'].shift(1) if 'open' in df.columns else close.shift(1) < close.shift(2)
+    df['ob_bullish'] = is_down_bar & (close > high.shift(1) + 1.0)
+    df['ob_bearish'] = (~is_down_bar) & (close < low.shift(1) - 1.0)
+
     return df
 
 
@@ -157,17 +168,22 @@ def evaluate_trade_probability(
     spread: float = 0.25,
     is_ifvg_active: bool = False,
     is_reversal_active: bool = False,
+    is_sweep_active: bool = False,
+    is_ob_active: bool = False,
     min_probability_threshold: int = 75
 ) -> tuple:
     """
     Autonomous Trade Probability & Quality Gatekeeper (0 to 100 Score).
-    Evaluates quantitative probability factors including IFVG & Reversals:
+    Evaluates quantitative probability factors including IFVG, Reversals, Sweeps & Order Blocks:
       1. Macro-Intraday Trend Alignment (+25 pts)
       2. Hyper Wave Momentum (+20 pts)
       3. Smart Money Flow Accumulation (+20 pts)
       4. Volatility ATR Health (+20 pts)
       5. Live Spread & Liquidity (+15 pts)
-      6. IFVG / Reversal Confluence Boost (+15 pts)
+      6. SMC IFVG Confluence (+15 pts)
+      7. Wolf Reversal Trigger (+15 pts)
+      8. Liquidity Sweep / Judas Swing (+15 pts)
+      9. Order Block Retest (+15 pts)
     """
     score = 0
     factors = []
@@ -199,6 +215,14 @@ def evaluate_trade_probability(
     if is_reversal_active:
         score += 15
         factors.append("Wolf Reversal Trigger (+15)")
+
+    if is_sweep_active:
+        score += 15
+        factors.append("Liquidity Sweep / Judas Swing (+15)")
+
+    if is_ob_active:
+        score += 15
+        factors.append("Institutional Order Block (+15)")
 
     approved = score >= min_probability_threshold
     return (approved, score, factors)
@@ -243,6 +267,10 @@ def run_strategy_cycle():
     is_ifvg_bearish = bool(intraday_row.get('ifvg_bearish', False))
     is_reversal_bullish = bool(intraday_row.get('reversal_bullish', False))
     is_reversal_bearish = bool(intraday_row.get('reversal_bearish', False))
+    is_sweep_bullish = bool(intraday_row.get('liquidity_sweep_bullish', False))
+    is_sweep_bearish = bool(intraday_row.get('liquidity_sweep_bearish', False))
+    is_ob_bullish = bool(intraday_row.get('ob_bullish', False))
+    is_ob_bearish = bool(intraday_row.get('ob_bearish', False))
 
     # 3. Autonomous Trade Quality & Probability Evaluation (0-100 Score)
     prob_approved, prob_score, prob_factors = evaluate_trade_probability(
@@ -255,6 +283,8 @@ def run_strategy_cycle():
         spread=0.25,
         is_ifvg_active=is_ifvg_bullish or is_ifvg_bearish,
         is_reversal_active=is_reversal_bullish or is_reversal_bearish,
+        is_sweep_active=is_sweep_bullish or is_sweep_bearish,
+        is_ob_active=is_ob_bullish or is_ob_bearish,
         min_probability_threshold=80
     )
 
