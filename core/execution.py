@@ -36,9 +36,8 @@ load_dotenv()
 TL_ENVIRONMENT = os.getenv("TL_ENVIRONMENT", "https://demo.tradelocker.com")
 TL_USERNAME = os.getenv("TL_USERNAME", "")
 TL_PASSWORD = os.getenv("TL_PASSWORD", "")
-TL_SERVER = os.getenv("TL_SERVER", "BLUEG")
+TL_SERVER = os.getenv("TL_SERVER", "")
 SYMBOL = os.getenv("SYMBOL", "XAUUSD")
-ALLOWED_BIG_THREE_SYMBOLS = ["XAUUSD", "NAS100", "US30"]
 MAX_LOSS_DOLLARS = float(os.getenv("MAX_LOSS_DOLLARS", "50.0"))  # Strict $50 max dollar loss per trade
 POSITION_QTY = float(os.getenv("POSITION_QTY", "0.10"))           # 0.10 lots (10 oz of Gold)
 HARD_DAILY_LOSS_LIMIT = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "125.0"))
@@ -231,18 +230,13 @@ def run_strategy_cycle():
     )
 
     EXECUTION_MODE = os.getenv("EXECUTION_MODE", "MAX_PROFIT").upper()
-    # Strict Intraday Direction Priority
+
+    # Short Scalp Confluence Calculation (Intraday Bearish + WaveTrend Negative + MFI Negative)
     is_intraday_bearish = intraday_close < intraday_hma if not np.isnan(intraday_hma) else False
-    is_wolf_osc_bullish = (osc_wave1 > osc_wave2) and (osc_smf > 0.0)
-    is_wolf_osc_bearish = (osc_wave1 < osc_wave2)
+    is_short_confluence = is_intraday_bearish and (osc_wave1 < osc_wave2) and (osc_smf < 0.0) and prob_approved
 
-    # Anti-Chase Dip Entry Guard: Ensure entry price is not extended > 1.5 ATR above 5m HMA (prevents top chasing!)
-    is_not_extended_peak = abs(intraday_close - intraday_hma) <= (current_atr * 1.50) if not np.isnan(intraday_hma) else True
-
-    # ABSOLUTE DIRECTION LOCK: If intraday is bearish OR oscillator is bearish -> NO BUYS ALLOWED!
-    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_wolf_osc_bullish and prob_approved and is_not_extended_peak and not is_intraday_bearish
-    # SHORT SNIPING CONFLUENCE: Triggered when 5m Intraday + Wolf Osc flip Bearish!
-    is_mtf_short_confluence = is_intraday_bearish and is_wolf_osc_bearish and (EXECUTION_MODE == "MAX_PROFIT") and prob_approved and is_not_extended_peak
+    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and prob_approved
+    is_mtf_short_confluence = is_short_confluence and (EXECUTION_MODE == "MAX_PROFIT")
 
     try:
         acc_state = tl.get_account_state()
@@ -262,16 +256,17 @@ def run_strategy_cycle():
     contract_size = 100.0
 
     # Lot Sizing & Dynamic Risk Scale based on Account Balance
-    # Base: 0.10 lots (10 oz Gold / $50 max risk / $5.00 SL price room) for $5,000 balance
+    # Base: 0.01 lots = $10 risk ($10 SL distance), max 0.05 lots = $50 risk until balance > $5,000
     if cash_balance <= 5000.0:
-        calculated_qty = 0.10  # User Preferred 0.10 Lot Base (+ $45.00 wins per $4.50 move!)
+        calculated_qty = 0.01  # Conservative base 0.01 lot ($10 risk)
     else:
-        # Scale lot size smoothly as account balance compounds beyond $5,000
-        calculated_qty = max(0.10, round((cash_balance / 5000.0) * 0.10, 2))
+        # Scale lot size as account balance compounds beyond $5,000
+        calculated_qty = max(0.01, round((cash_balance / 5000.0) * 0.05, 2))
 
-    # Ultra-Strict Risk Cap: Hard $15.00 MAX RISK ($1.50 Gold price stop room for 0.10 lots!)
-    actual_max_risk = 15.0
-    price_stop_distance = 1.50  # Strict 1.50 Gold price points room ($15.00 max loss per trade!)
+    # Dollar Risk determined directly by Lot Size ($1,000 risk per 1.00 lot | $10 risk per 0.01 lot)
+    actual_max_risk = round(calculated_qty * 1000.0, 2)
+    # Trailing Stop Loss price distance derived from lot size ($10.00 price points)
+    price_stop_distance = round(actual_max_risk / (calculated_qty * contract_size), 2)
 
     print(f"--- Autonomous MTF Trade Quality Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f}")
@@ -279,7 +274,7 @@ def run_strategy_cycle():
     print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
     print(f"Autonomous Trade Probability Score: {prob_score}/100 {'[HIGH PROBABILITY 🚀]' if prob_approved else '[LOW/MED PROBABILITY ⏸️]'}")
     print(f"Active Probability Factors: {', '.join(prob_factors)}")
-    
+    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE / HELD ⏸️'}")
     print(f"5m ATR Volatility: ${current_atr:.2f}")
     print(f"Account Equity: ${cash_balance:,.2f} | Dynamic Lot Size: {calculated_qty} lots")
     print(f"Actual Max Dollar Risk: ${actual_max_risk:.2f} (Trailing SL Distance: ${price_stop_distance:.2f} price points)")
@@ -417,68 +412,6 @@ def run_strategy_cycle():
         print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
         send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
-    elif is_mtf_short_confluence and not has_open_position:
-        stop_loss_price = round(intraday_close + price_stop_distance, 2)
-        take_profit_price = round(intraday_close - max(150.0, price_stop_distance * 15.0), 2)
-
-        risk_config = RiskConfig(
-            max_loss_per_trade_pct=1.0,
-            hard_daily_loss_limit=HARD_DAILY_LOSS_LIMIT,
-            max_drawdown_pct=3.0,
-            require_structural_stop=True,
-            max_open_positions=1
-        )
-        risk_mgr = RiskManager(config=risk_config)
-        test_env = TradeRiskEnvelope(
-            symbol=SYMBOL,
-            direction=Direction.SHORT,
-            entry_price=intraday_close,
-            stop_loss=stop_loss_price,
-            position_size=calculated_qty,
-            risk_dollars=actual_max_risk,
-            risk_ticks=price_stop_distance
-        )
-        test_order = Order(
-            symbol=SYMBOL,
-            direction=Direction.SHORT,
-            order_type=OrderType.MARKET,
-            quantity=calculated_qty,
-            price=intraday_close,
-            risk_envelope=test_env
-        )
-        acc_risk_state = AccountRiskState(
-            current_equity=cash_balance,
-            daily_pnl=today_net,
-            open_position_count=1 if has_open_position else 0
-        )
-        decision = risk_mgr.gate_order(test_order, acc_risk_state)
-
-        if not decision.approved:
-            print(f"🛑 Short Order REJECTED by RiskManager Gatekeeper: {decision.message}")
-            return
-
-        print(f">>> Short Signal Triggered & Approved! Sniping Short Position for {calculated_qty} lots...")
-        tl.create_order(
-            instrument_id=instrument_id,
-            quantity=float(calculated_qty),
-            side="sell",
-            type_="market",
-            stop_loss=float(stop_loss_price),
-            stop_loss_type="absolute",
-            take_profit=float(take_profit_price),
-            take_profit_type="absolute"
-        )
-        msg_details = (
-            f"🎯 **SHORT SELL ORDER PLACED ON TRADELOCKER**\n"
-            f"• **Symbol:** `{SYMBOL}`\n"
-            f"• **Position Size:** `{calculated_qty}` lots\n"
-            f"• **Entry Price:** `${intraday_close:.2f}`\n"
-            f"• **Stop Loss Price:** `${stop_loss_price:.2f}` (+${price_stop_distance:.2f} price points | Max Risk: -${actual_max_risk:.2f})\n"
-            f"• **Take Profit Price:** `${take_profit_price:.2f}` (-${price_stop_distance * 15.0:.2f} price points | Target: +$150.00+)"
-        )
-        print(f"✅ Placed SHORT SELL order for {calculated_qty} lots of {SYMBOL}:")
-        send_discord_alert("🎯 Short Trade Opened", msg_details, color=0xE74C3C)
-
     elif has_open_position:
         # ── Sub-Second Tick-Level Profit & Pullback Ratchet ──
         # Fetch real-time tick price stream for instant sub-30s pullback protection
@@ -495,33 +428,23 @@ def run_strategy_cycle():
             (latest_tick_price - lowest_tick_low) * calculated_qty * 100.0
         )
         
-        # ── Intelligent Micro & Macro Autonomous Loss Cutter ──
-        is_long_pos = hasattr(positions, "iterrows") and len(positions) > 0 and positions.iloc[0].get('side', '').lower() == 'buy'
-        entry_price_val = float(positions.iloc[0].get('avgPrice', intraday_close)) if hasattr(positions, "iterrows") and len(positions) > 0 else intraday_close
-        current_pnl_dollars = (latest_tick_price - entry_price_val) * calculated_qty * 100.0 if is_long_pos else (entry_price_val - latest_tick_price) * calculated_qty * 100.0
-
-        # Lightning-Fast Sub-Second Loss Cut: If unrealized loss hits -$10.00 (-1.00 pt) or price moves > $1.50 against us -> Cut instantly!
-        hard_lightning_loss_cut = (current_pnl_dollars <= -10.0) or (latest_tick_price < (entry_price_val - 1.50) if is_long_pos else latest_tick_price > (entry_price_val + 1.50))
-
-        # Micro Failure Cut: If in loss (pnl < -$10.00) AND fast oscillator wave flips -> Cut early to save capital!
-        micro_loss_cut = (current_pnl_dollars < -10.0) and ((osc_wave1 < osc_wave2 if is_long_pos else osc_wave1 > osc_wave2))
-        # Macro Failure Cut: If macro 1D trend reverses against open position -> Cut instantly!
-        macro_loss_cut = (not is_macro_bullish if is_long_pos else is_macro_bullish)
-
-        if hard_lightning_loss_cut or micro_loss_cut:
-            print(f"✂️ Lightning-Fast Loss Cut Triggered: PnL ${current_pnl_dollars:.2f} | Cutting obvious loser instantly in milliseconds!")
-        elif macro_loss_cut:
-            print(f"🛑 Macro Trend Invalidation: Cutting position due to 1D Macro Trend flip!")
-
-        # Break-Even Lock at +$5.00 profit: Protect trade at Break-Even while letting runner ride for $150+!
+        # Instant Sub-30s Tick Pullback Guard: If tick gain >= $10 and price pulls back > $3.50 on ticks -> Instant Exit!
+        tick_pullback_triggered = (tick_peak_gain >= 10.0) and (latest_tick_price < (peak_tick_high - 3.50))
+        
+        # Early $5.00 Profit Guardian: If profit >= $5.00 and price pulls back > $1.50 -> Close immediately before returning to red!
+        early_5dollar_protection = (tick_peak_gain >= 5.0) and (latest_tick_price < (peak_tick_high - 1.50))
+        
+        # Autonomous Stagnation & Confluence Decay Exit: If profit sitting between $5-$9 and momentum weakens -> Harvest profit early!
+        stagnation_decay_exit = (tick_peak_gain >= 5.0 and tick_peak_gain < 10.0) and (not prob_approved or (osc_wave1 < osc_wave2 if is_intraday_bullish else osc_wave1 > osc_wave2))
+        
         if tick_peak_gain >= 5.0 and tick_peak_gain < 10.0:
-            print(f"🛡️ Break-Even Protection Active: Peak Gain ${tick_peak_gain:.2f} | Protected at Break-Even (Zero Risk) — Riding Runner!")
+            print(f"🛡️ Early $5.00 Profit Guardian Active: Peak Gain ${tick_peak_gain:.2f} | Protected at Break-Even + $1.00!")
         elif tick_peak_gain >= 10.0:
             locked_profit_dollars = tick_peak_gain * 0.50
-            print(f"⚡ Sub-Second Tick Profit Ratchet Active: Peak Gain ${tick_peak_gain:.2f} | Current Price ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
+            print(f"⚡ Sub-Second Tick Profit Protection Active: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick Price: ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
 
-        # Exit if 5m intraday trend flips OR hard lightning loss cut OR micro loss cut OR macro loss cut triggers!
-        should_close = (not is_intraday_bullish if is_long_pos else not is_intraday_bearish) or hard_lightning_loss_cut or micro_loss_cut or macro_loss_cut
+        # Exit if 5m intraday trend flips OR sub-30s tick pullback triggers OR early $5 protection OR stagnation exit triggers!
+        should_close = (not is_intraday_bullish and not is_intraday_bearish) or tick_pullback_triggered or early_5dollar_protection or stagnation_decay_exit
         
         if should_close:
             print(f">>> Sub-Second Tick Exit Triggered: Peak Tick ${peak_tick_high:.2f} | Closing to lock in profits.")
@@ -540,18 +463,6 @@ def run_strategy_cycle():
                         tl.close_position(position_id=pos_id)
                         print(f"Position {pos_id} closed successfully.")
         else:
-            # Transmit API call to ratchet TradeLocker's native on-chart T.SL line automatically!
-            if tick_peak_gain >= 5.0:
-                new_sl_price = round(peak_tick_high - 1.00, 2) if is_intraday_bullish else round(lowest_tick_low + 1.00, 2)
-                if hasattr(positions, "iterrows"):
-                    for idx, p in positions.iterrows():
-                        pos_id = p.get('id') if 'id' in p else p.get('positionId')
-                        if pos_id and hasattr(tl, "modify_position"):
-                            try:
-                                tl.modify_position(position_id=pos_id, stop_loss=float(new_sl_price))
-                                print(f"🔒 Automatically Ratcheted On-Chart T.SL to ${new_sl_price:.2f} via TradeLocker API!")
-                            except Exception:
-                                pass
             print(f"📈 Holding Trailing Runner: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick ${latest_tick_price:.2f} | Sub-Second Tick Guard Active.")
     else:
         print("No trade action required on this cycle. Holding state.")
