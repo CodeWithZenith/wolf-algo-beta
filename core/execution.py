@@ -275,7 +275,10 @@ def run_strategy_cycle():
     print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
     print(f"Autonomous Trade Probability Score: {prob_score}/100 {'[HIGH PROBABILITY 🚀]' if prob_approved else '[LOW/MED PROBABILITY ⏸️]'}")
     print(f"Active Probability Factors: {', '.join(prob_factors)}")
-    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE / HELD ⏸️'}")
+    # Anti-Chase Dip Entry Guard: Ensure entry price is not extended > 1.5 ATR above 5m HMA (prevents top chasing!)
+    is_not_extended_peak = abs(intraday_close - fast_hma.iloc[-1]) <= (current_atr * 1.50)
+    
+    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_wolf_osc_bullish and prob_approved and is_not_extended_peak
     print(f"5m ATR Volatility: ${current_atr:.2f}")
     print(f"Account Equity: ${cash_balance:,.2f} | Dynamic Lot Size: {calculated_qty} lots")
     print(f"Actual Max Dollar Risk: ${actual_max_risk:.2f} (Trailing SL Distance: ${price_stop_distance:.2f} price points)")
