@@ -264,10 +264,9 @@ def run_strategy_cycle():
         # Scale lot size smoothly as account balance compounds beyond $5,000
         calculated_qty = max(0.10, round((cash_balance / 5000.0) * 0.10, 2))
 
-    # Dollar Risk determined by Lot Size ($50 max risk at 0.10 lots)
-    actual_max_risk = 50.0 if calculated_qty <= 0.10 else round(calculated_qty * 500.0, 2)
-    # Trailing Stop Loss price distance ($5.00 price points room for 0.10 lots)
-    price_stop_distance = max(3.50, min(10.0, round(actual_max_risk / (calculated_qty * contract_size), 2)))
+    # Ultra-Strict Risk Cap: Hard $15.00 MAX RISK ($1.50 Gold price stop room for 0.10 lots!)
+    actual_max_risk = 15.0
+    price_stop_distance = 1.50  # Strict 1.50 Gold price points room ($15.00 max loss per trade!)
 
     print(f"--- Autonomous MTF Trade Quality Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f}")
@@ -500,13 +499,16 @@ def run_strategy_cycle():
         entry_price_val = float(positions.iloc[0].get('avgPrice', intraday_close)) if hasattr(positions, "iterrows") and len(positions) > 0 else intraday_close
         current_pnl_dollars = (latest_tick_price - entry_price_val) * calculated_qty * 100.0 if is_long_pos else (entry_price_val - latest_tick_price) * calculated_qty * 100.0
 
-        # Micro Failure Cut: If in loss (pnl < -$15.00) AND fast oscillator wave flips -> Cut early to save capital!
-        micro_loss_cut = (current_pnl_dollars < -15.0) and ((osc_wave1 < osc_wave2 if is_long_pos else osc_wave1 > osc_wave2))
+        # Lightning-Fast Sub-Second Loss Cut: If unrealized loss hits -$10.00 (-1.00 pt) or price moves > $1.50 against us -> Cut instantly!
+        hard_lightning_loss_cut = (current_pnl_dollars <= -10.0) or (latest_tick_price < (entry_price_val - 1.50) if is_long_pos else latest_tick_price > (entry_price_val + 1.50))
+
+        # Micro Failure Cut: If in loss (pnl < -$10.00) AND fast oscillator wave flips -> Cut early to save capital!
+        micro_loss_cut = (current_pnl_dollars < -10.0) and ((osc_wave1 < osc_wave2 if is_long_pos else osc_wave1 > osc_wave2))
         # Macro Failure Cut: If macro 1D trend reverses against open position -> Cut instantly!
         macro_loss_cut = (not is_macro_bullish if is_long_pos else is_macro_bullish)
 
-        if micro_loss_cut:
-            print(f"✂️ Micro Loss Cut Triggered: PnL ${current_pnl_dollars:.2f} | Cutting obvious loser early to save capital!")
+        if hard_lightning_loss_cut or micro_loss_cut:
+            print(f"✂️ Lightning-Fast Loss Cut Triggered: PnL ${current_pnl_dollars:.2f} | Cutting obvious loser instantly in milliseconds!")
         elif macro_loss_cut:
             print(f"🛑 Macro Trend Invalidation: Cutting position due to 1D Macro Trend flip!")
 
@@ -517,8 +519,8 @@ def run_strategy_cycle():
             locked_profit_dollars = tick_peak_gain * 0.50
             print(f"⚡ Sub-Second Tick Profit Ratchet Active: Peak Gain ${tick_peak_gain:.2f} | Current Price ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
 
-        # Exit if 5m intraday trend flips OR micro loss cut triggers OR macro loss cut triggers!
-        should_close = (not is_intraday_bullish if is_long_pos else not is_intraday_bearish) or micro_loss_cut or macro_loss_cut
+        # Exit if 5m intraday trend flips OR hard lightning loss cut OR micro loss cut OR macro loss cut triggers!
+        should_close = (not is_intraday_bullish if is_long_pos else not is_intraday_bearish) or hard_lightning_loss_cut or micro_loss_cut or macro_loss_cut
         
         if should_close:
             print(f">>> Sub-Second Tick Exit Triggered: Peak Tick ${peak_tick_high:.2f} | Closing to lock in profits.")
