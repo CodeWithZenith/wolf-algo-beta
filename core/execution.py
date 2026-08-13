@@ -275,8 +275,9 @@ def run_strategy_cycle():
     print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
     print(f"Autonomous Trade Probability Score: {prob_score}/100 {'[HIGH PROBABILITY 🚀]' if prob_approved else '[LOW/MED PROBABILITY ⏸️]'}")
     print(f"Active Probability Factors: {', '.join(prob_factors)}")
+    is_wolf_osc_bullish = (osc_wave1 > osc_wave2) and (osc_smf > 0.0)
     # Anti-Chase Dip Entry Guard: Ensure entry price is not extended > 1.5 ATR above 5m HMA (prevents top chasing!)
-    is_not_extended_peak = abs(intraday_close - fast_hma.iloc[-1]) <= (current_atr * 1.50)
+    is_not_extended_peak = abs(intraday_close - intraday_hma) <= (current_atr * 1.50) if not np.isnan(intraday_hma) else True
     
     is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_wolf_osc_bullish and prob_approved and is_not_extended_peak
     print(f"5m ATR Volatility: ${current_atr:.2f}")
