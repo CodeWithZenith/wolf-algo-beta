@@ -465,8 +465,22 @@ def run_strategy_cycle():
                     pos_id = p.get('id') or p.get('positionId')
                     if pos_id:
                         tl.close_position(position_id=pos_id)
-                        print(f"Position {pos_id} closed successfully.")
         else:
+            # Transmit API call to ratchet TradeLocker's native on-chart T.SL line automatically!
+            if tick_peak_gain >= 5.0 and hasattr(positions, "iterrows") and len(positions) > 0:
+                pos_row = positions.iloc[0]
+                pos_id = pos_row.get('id') if 'id' in pos_row else pos_row.get('positionId')
+                if pos_id:
+                    try:
+                        if is_long_pos:
+                            new_sl_price = round(entry_price_val + max(0.50, (latest_tick_price - entry_price_val) * 0.50), 2)
+                        else:
+                            new_sl_price = round(entry_price_val - max(0.50, (entry_price_val - latest_tick_price) * 0.50), 2)
+                        tl.modify_position(position_id=pos_id, stop_loss=new_sl_price)
+                        print(f"🔒 Ratcheted On-Chart T.SL to ${new_sl_price:.2f} via TradeLocker API!")
+                    except Exception as err:
+                        print(f"⚠️ Could not modify position T.SL: {err}")
+
             print(f"📈 Holding Trailing Runner: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick ${latest_tick_price:.2f} | Sub-Second Tick Guard Active.")
     else:
         print("No trade action required on this cycle. Holding state.")
