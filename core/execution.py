@@ -301,6 +301,7 @@ def run_strategy_cycle():
     is_sweep_bullish = bool(intraday_row.get('liquidity_sweep_bullish', False))
     is_sweep_bearish = bool(intraday_row.get('liquidity_sweep_bearish', False))
     is_ob_bullish = bool(intraday_row.get('ob_bullish', False))
+    is_ob_bearish = bool(intraday_row.get('ob_bearish', False))
     is_warrior_bullish = bool(intraday_row.get('warrior_hammer', False)) or bool(intraday_row.get('warrior_coc_bullish', False))
     is_warrior_bearish = bool(intraday_row.get('warrior_star', False)) or bool(intraday_row.get('warrior_coc_bearish', False))
     is_ml_st_bullish = bool(intraday_row.get('ml_supertrend_bullish', False))
