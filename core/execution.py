@@ -465,31 +465,14 @@ def run_strategy_cycle():
 
     contract_size = 100.0
 
-    # ── Universal Embedded Account Protection Matrix (Adapts to ANY Account Size & Broker) ──
-    if cash_balance <= 300.0:
-        # Micro Deposit ($100-$300 Equity) -> 0.01 lot ($2.00 max risk / 1.0% risk cap)
-        calculated_qty = 0.01
-        actual_max_risk = 2.00
-        price_stop_distance = 2.00
-        effective_daily_loss_limit = 10.0
-    elif cash_balance <= 1000.0:
-        # Small Account ($300-$1,000 Equity) -> 0.02 lot ($4.00 max risk)
-        calculated_qty = 0.02
-        actual_max_risk = 4.00
-        price_stop_distance = 2.00
-        effective_daily_loss_limit = 25.0
-    elif cash_balance <= 10000.0:
-        # Standard Account ($1k-$10k Equity) -> 0.05 lot ($20.00 max risk)
-        calculated_qty = 0.05
-        actual_max_risk = 20.0
-        price_stop_distance = 4.00
-        effective_daily_loss_limit = 50.0
-    else:
-        # Large Account / $25k Tradovate ($500 Static Drawdown Protection)
-        calculated_qty = float(os.getenv("POSITION_QTY", "0.05"))
-        actual_max_risk = 20.0
-        price_stop_distance = 4.00
-        effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "150.0"))
+    # ── Strict User Execution Directives ──
+    # 1. Lot Size: Locked to 0.05 Lots (5 oz of Gold)
+    # 2. Stop Loss Distance: $1.00 Gold Price Points = EXACTLY $5.00 Max Risk upon entry!
+    # 3. Trailing SL: Trails price at $1.00 distance ($5.00 buffer) as price advances!
+    calculated_qty = 0.05
+    actual_max_risk = 5.00
+    price_stop_distance = 1.00
+    effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "25.0"))
 
     # Patient Confluence Filter: Strict Alignment with 1D Trend + 5m HMA + Wolf Osc Wave1/Wave2 + MFI Money Flow
     is_intraday_bearish = intraday_close < intraday_hma if not np.isnan(intraday_hma) else False
