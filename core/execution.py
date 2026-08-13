@@ -338,9 +338,9 @@ def run_strategy_cycle():
 
     contract_size = 100.0
 
-    # Patient Trader-Mindset Sizing: 0.05 Lots Base ($20 hard max risk / $4.00 SL room)
-    calculated_qty = 0.05 if cash_balance <= 5000.0 else max(0.05, round((cash_balance / 5000.0) * 0.05, 2))
-    actual_max_risk = 20.0  # Hard -$20.00 max risk per trade!
+    # Patient Trader-Mindset Sizing: Locked to 0.05 Lots Base ($20 hard max risk / $4.00 SL room)
+    calculated_qty = float(os.getenv("POSITION_QTY", "0.05"))
+    actual_max_risk = round(calculated_qty * 100.0 * 4.00, 2)  # Hard -$20.00 max risk per trade at 0.05 lots
     price_stop_distance = 4.00  # $4.00 Gold price points room ($20 max loss at 0.05 lots)
 
     # Patient Confluence Filter: Strict Alignment with 1D Trend + 5m HMA + Wolf Osc Wave1/Wave2 + MFI Money Flow
