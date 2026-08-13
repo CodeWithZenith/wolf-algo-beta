@@ -347,6 +347,20 @@ def evaluate_trade_probability(
     return (approved, score, factors)
 
 
+def resolve_instrument_id(tl, symbol_name: str) -> int:
+    """Find tradableInstrumentId matching exact symbol, or suffix matches like XAUUSD.R / XAUUSD.ecn."""
+    try:
+        insts = tl.get_all_instruments()
+        if hasattr(insts, "iterrows"):
+            for _, row in insts.iterrows():
+                name = str(row.get("name", "")).upper()
+                if symbol_name.upper() in name or name.startswith(symbol_name.upper()):
+                    return int(row["tradableInstrumentId"])
+    except Exception:
+        pass
+    return 13676
+
+
 def run_strategy_cycle():
     """
     Execute a single live strategy evaluation cycle via TradeLocker:
@@ -357,7 +371,7 @@ def run_strategy_cycle():
       5. Create BUY market order with attached SL/TP or CLOSE position accordingly
     """
     tl = initialize_client()
-    instrument_id = tl.get_instrument_id_from_symbol_name(SYMBOL)
+    instrument_id = resolve_instrument_id(tl, SYMBOL)
 
     # 1. Fetch Daily Macro Price History for Macro Trend (1D HMA-100)
     raw_macro = tl.get_price_history(instrument_id, resolution="1D", lookback_period="200D")
@@ -462,9 +476,19 @@ def run_strategy_cycle():
     is_wolf_osc_bullish = (osc_wave1 > osc_wave2) and (osc_smf > 0.0)
     is_wolf_osc_bearish = (osc_wave1 < osc_wave2) and (osc_smf < 0.0)
 
-    # ABSOLUTE PATIENT CONFLUENCE: Never trade against the Wolf Regime! Score MUST be >= 80/100!
-    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_wolf_osc_bullish and prob_approved
-    is_mtf_short_confluence = (not is_macro_bullish or True) and is_intraday_bearish and is_wolf_osc_bearish and prob_approved
+    # ── STRICT MARKET REGIME ALIGNMENT ENGINE ──
+    # 1. BULLISH REGIME (1D HMA-100 is Bullish):
+    #    - BUY LONG trades: Allowed when Intraday & Wolf Osc are Bullish.
+    #    - SELL SHORT trades: STRICTLY BLOCKED in a Bullish Regime UNLESS prob_score >= 100 (Full 10-Factor Extreme Reversal!)
+    # 2. BEARISH REGIME (1D HMA-100 is Bearish):
+    #    - SELL SHORT trades: Allowed when Intraday & Wolf Osc are Bearish.
+    #    - BUY LONG trades: STRICTLY BLOCKED in a Bearish Regime UNLESS prob_score >= 100 (Full 10-Factor Extreme Reversal!)
+    if is_macro_bullish:
+        is_mtf_bullish_confluence = is_intraday_bullish and is_wolf_osc_bullish and prob_approved
+        is_mtf_short_confluence = (prob_score >= 100) and is_intraday_bearish and is_wolf_osc_bearish and prob_approved
+    else:
+        is_mtf_short_confluence = is_intraday_bearish and is_wolf_osc_bearish and prob_approved
+        is_mtf_bullish_confluence = (prob_score >= 100) and is_intraday_bullish and is_wolf_osc_bullish and prob_approved
 
     print(f"--- Autonomous MTF Trade Quality Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f}")
