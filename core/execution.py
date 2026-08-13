@@ -181,11 +181,17 @@ class PaperBrokerClient:
         return True
 
 
+_GLOBAL_PAPER_BROKER = None
+
+
 def initialize_client():
-    """Initialize client: Uses PaperBrokerClient when PAPER_TRADING_MODE is true or credentials absent."""
+    """Initialize client: Uses persistent PaperBrokerClient when PAPER_TRADING_MODE is true or credentials absent."""
+    global _GLOBAL_PAPER_BROKER
     if PAPER_TRADING_MODE or not (TL_USERNAME and TL_PASSWORD):
-        print("📝 PAPER TRADING MODE ACTIVE: Initializing 0-Risk $100,000 Paper Engine...")
-        return PaperBrokerClient()
+        if _GLOBAL_PAPER_BROKER is None:
+            print("📝 PAPER TRADING MODE ACTIVE: Initializing Persistent 0-Risk $100,000 Paper Engine...")
+            _GLOBAL_PAPER_BROKER = PaperBrokerClient()
+        return _GLOBAL_PAPER_BROKER
 
     return TLAPI(
         environment=TL_ENVIRONMENT,
