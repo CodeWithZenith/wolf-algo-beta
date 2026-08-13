@@ -416,6 +416,68 @@ def run_strategy_cycle():
         print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
         send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
+    elif is_mtf_bearish_confluence and not has_open_position:
+        stop_loss_price = round(intraday_close + price_stop_distance, 2)
+        take_profit_price = round(intraday_close - max(150.0, price_stop_distance * 15.0), 2)
+
+        risk_config = RiskConfig(
+            max_loss_per_trade_pct=1.0,
+            hard_daily_loss_limit=HARD_DAILY_LOSS_LIMIT,
+            max_drawdown_pct=3.0,
+            require_structural_stop=True,
+            max_open_positions=1
+        )
+        risk_mgr = RiskManager(config=risk_config)
+        test_env = TradeRiskEnvelope(
+            symbol=SYMBOL,
+            direction=Direction.SHORT,
+            entry_price=intraday_close,
+            stop_loss=stop_loss_price,
+            position_size=calculated_qty,
+            risk_dollars=actual_max_risk,
+            risk_ticks=price_stop_distance
+        )
+        test_order = Order(
+            symbol=SYMBOL,
+            direction=Direction.SHORT,
+            order_type=OrderType.MARKET,
+            quantity=calculated_qty,
+            price=intraday_close,
+            risk_envelope=test_env
+        )
+        acc_risk_state = AccountRiskState(
+            current_equity=cash_balance,
+            daily_pnl=today_net,
+            open_position_count=1 if has_open_position else 0
+        )
+        decision = risk_mgr.gate_order(test_order, acc_risk_state)
+
+        if not decision.approved:
+            print(f"🛑 Short Order REJECTED by RiskManager Gatekeeper: {decision.message}")
+            return
+
+        print(f">>> Short Signal Triggered & Approved! Sniping Short Position for {calculated_qty} lots...")
+        tl.create_order(
+            instrument_id=instrument_id,
+            quantity=float(calculated_qty),
+            side="sell",
+            type_="market",
+            stop_loss=float(stop_loss_price),
+            stop_loss_type="absolute",
+            take_profit=float(take_profit_price),
+            take_profit_type="absolute"
+        )
+        msg_details = (
+            f"🎯 **SHORT SELL ORDER PLACED ON TRADELOCKER**\n"
+            f"• **Symbol:** `{SYMBOL}`\n"
+            f"• **Position Size:** `{calculated_qty}` lots\n"
+            f"• **Entry Price:** `${intraday_close:.2f}`\n"
+            f"• **Stop Loss Price:** `${stop_loss_price:.2f}` (+${price_stop_distance:.2f} price points | Max Risk: -${actual_max_risk:.2f})\n"
+            f"• **Take Profit Price:** `${take_profit_price:.2f}` (-${price_stop_distance * 15.0:.2f} price points | Target: +$150.00+)"
+        )
+        print(f"✅ Placed SHORT SELL order for {calculated_qty} lots of {SYMBOL}:")
+        send_discord_alert("🎯 Short Trade Opened", msg_details, color=0xE74C3C)
+
     elif has_open_position:
         # ── Sub-Second Tick-Level Profit & Pullback Ratchet ──
         # Fetch real-time tick price stream for instant sub-30s pullback protection
