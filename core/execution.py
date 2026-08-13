@@ -417,7 +417,7 @@ def run_strategy_cycle():
         print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
         send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
-    elif is_mtf_bearish_confluence and not has_open_position:
+    elif is_mtf_short_confluence and not has_open_position:
         stop_loss_price = round(intraday_close + price_stop_distance, 2)
         take_profit_price = round(intraday_close - max(150.0, price_stop_distance * 15.0), 2)
 
