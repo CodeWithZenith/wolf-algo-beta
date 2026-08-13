@@ -30,8 +30,8 @@ HARD_DAILY_LOSS_LIMIT = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "125.0"))
 # Paper Trading State Storage
 PAPER_TRADING_MODE = os.getenv("PAPER_TRADING_MODE", "true").lower() == "true"
 paper_state = {
-    "balance": 5000.00,
-    "equity": 5000.00,
+    "balance": 100000.00,
+    "equity": 100000.00,
     "today_pnl": 0.00,
     "trades": [],
     "position": None
