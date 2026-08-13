@@ -114,6 +114,7 @@ def calculate_indicators(df: pd.DataFrame, hma_period: int = 20) -> pd.DataFrame
       - 3D HMA Ribbon Cloud
       - ATR-14 volatility indicator
       - Wolf Algo V1 Oscillator (Hyper Wave1/Wave2 + Smart Money Flow MFI)
+      - Smart Money IFVG (Inverted Fair Value Gap) & Reversal Detection
     """
     close = df['c'] if 'c' in df.columns else df['close']
     high = df['h'] if 'h' in df.columns else df['high']
@@ -133,6 +134,16 @@ def calculate_indicators(df: pd.DataFrame, hma_period: int = 20) -> pd.DataFrame
     df['bull_reversal'] = breval
     df['bull_confluence'] = bconf
 
+    # Smart Money IFVG (Inverted Fair Value Gap) Calculation
+    fvg_bear = (high.shift(2) < low)  # 3-bar gap down
+    fvg_bull = (low.shift(2) > high)  # 3-bar gap up
+    df['ifvg_bullish'] = fvg_bear.shift(1) & (close > high.shift(2))
+    df['ifvg_bearish'] = fvg_bull.shift(1) & (close < low.shift(2))
+
+    # Real-Time Reversal Signal Detection (Extreme Oversold/Overbought Wave Cross + HMA Flip)
+    df['reversal_bullish'] = (w1.shift(1) < -35.0) & (w1 > w2) & (close > df['hma'])
+    df['reversal_bearish'] = (w1.shift(1) > 35.0) & (w1 < w2) & (close < df['hma'])
+
     return df
 
 
@@ -144,16 +155,19 @@ def evaluate_trade_probability(
     osc_smf: float,
     current_atr: float,
     spread: float = 0.25,
+    is_ifvg_active: bool = False,
+    is_reversal_active: bool = False,
     min_probability_threshold: int = 75
 ) -> tuple:
     """
     Autonomous Trade Probability & Quality Gatekeeper (0 to 100 Score).
-    Evaluates 5 quantitative probability factors before allowing order creation:
+    Evaluates quantitative probability factors including IFVG & Reversals:
       1. Macro-Intraday Trend Alignment (+25 pts)
       2. Hyper Wave Momentum (+20 pts)
       3. Smart Money Flow Accumulation (+20 pts)
       4. Volatility ATR Health (+20 pts)
       5. Live Spread & Liquidity (+15 pts)
+      6. IFVG / Reversal Confluence Boost (+15 pts)
     """
     score = 0
     factors = []
@@ -177,6 +191,14 @@ def evaluate_trade_probability(
     if spread <= 1.00:
         score += 15
         factors.append("Tight Spread (+15)")
+
+    if is_ifvg_active:
+        score += 15
+        factors.append("SMC IFVG Confluence (+15)")
+
+    if is_reversal_active:
+        score += 15
+        factors.append("Wolf Reversal Trigger (+15)")
 
     approved = score >= min_probability_threshold
     return (approved, score, factors)
@@ -217,6 +239,11 @@ def run_strategy_cycle():
     osc_smf = intraday_row.get('smooth_mf', 0.0)
     current_atr = intraday_row['atr_14'] if 'atr_14' in intraday_row and not np.isnan(intraday_row['atr_14']) else 8.0
 
+    is_ifvg_bullish = bool(intraday_row.get('ifvg_bullish', False))
+    is_ifvg_bearish = bool(intraday_row.get('ifvg_bearish', False))
+    is_reversal_bullish = bool(intraday_row.get('reversal_bullish', False))
+    is_reversal_bearish = bool(intraday_row.get('reversal_bearish', False))
+
     # 3. Autonomous Trade Quality & Probability Evaluation (0-100 Score)
     prob_approved, prob_score, prob_factors = evaluate_trade_probability(
         is_macro_bullish=is_macro_bullish,
@@ -226,6 +253,8 @@ def run_strategy_cycle():
         osc_smf=osc_smf,
         current_atr=current_atr,
         spread=0.25,
+        is_ifvg_active=is_ifvg_bullish or is_ifvg_bearish,
+        is_reversal_active=is_reversal_bullish or is_reversal_bearish,
         min_probability_threshold=80
     )
 
