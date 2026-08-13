@@ -495,6 +495,21 @@ def run_strategy_cycle():
             (latest_tick_price - lowest_tick_low) * calculated_qty * 100.0
         )
         
+        # ── Intelligent Micro & Macro Autonomous Loss Cutter ──
+        is_long_pos = hasattr(positions, "iterrows") and len(positions) > 0 and positions.iloc[0].get('side', '').lower() == 'buy'
+        entry_price_val = float(positions.iloc[0].get('avgPrice', intraday_close)) if hasattr(positions, "iterrows") and len(positions) > 0 else intraday_close
+        current_pnl_dollars = (latest_tick_price - entry_price_val) * calculated_qty * 100.0 if is_long_pos else (entry_price_val - latest_tick_price) * calculated_qty * 100.0
+
+        # Micro Failure Cut: If in loss (pnl < -$15.00) AND fast oscillator wave flips -> Cut early to save capital!
+        micro_loss_cut = (current_pnl_dollars < -15.0) and ((osc_wave1 < osc_wave2 if is_long_pos else osc_wave1 > osc_wave2))
+        # Macro Failure Cut: If macro 1D trend reverses against open position -> Cut instantly!
+        macro_loss_cut = (not is_macro_bullish if is_long_pos else is_macro_bullish)
+
+        if micro_loss_cut:
+            print(f"✂️ Micro Loss Cut Triggered: PnL ${current_pnl_dollars:.2f} | Cutting obvious loser early to save capital!")
+        elif macro_loss_cut:
+            print(f"🛑 Macro Trend Invalidation: Cutting position due to 1D Macro Trend flip!")
+
         # Break-Even Lock at +$5.00 profit: Protect trade at Break-Even while letting runner ride for $150+!
         if tick_peak_gain >= 5.0 and tick_peak_gain < 10.0:
             print(f"🛡️ Break-Even Protection Active: Peak Gain ${tick_peak_gain:.2f} | Protected at Break-Even (Zero Risk) — Riding Runner!")
@@ -502,8 +517,8 @@ def run_strategy_cycle():
             locked_profit_dollars = tick_peak_gain * 0.50
             print(f"⚡ Sub-Second Tick Profit Ratchet Active: Peak Gain ${tick_peak_gain:.2f} | Current Price ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
 
-        # Only exit when 5m intraday trend actually flips direction OR full trailing stop is hit!
-        should_close = not is_intraday_bullish if (hasattr(positions, "iterrows") and len(positions) > 0 and positions.iloc[0].get('side', '').lower() == 'buy') else not is_intraday_bearish
+        # Exit if 5m intraday trend flips OR micro loss cut triggers OR macro loss cut triggers!
+        should_close = (not is_intraday_bullish if is_long_pos else not is_intraday_bearish) or micro_loss_cut or macro_loss_cut
         
         if should_close:
             print(f">>> Sub-Second Tick Exit Triggered: Peak Tick ${peak_tick_high:.2f} | Closing to lock in profits.")
