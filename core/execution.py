@@ -495,23 +495,15 @@ def run_strategy_cycle():
             (latest_tick_price - lowest_tick_low) * calculated_qty * 100.0
         )
         
-        # Instant Sub-30s Tick Pullback Guard: If tick gain >= $10 and price pulls back > $3.50 on ticks -> Instant Exit!
-        tick_pullback_triggered = (tick_peak_gain >= 10.0) and (latest_tick_price < (peak_tick_high - 3.50))
-        
-        # Early $5.00 Profit Guardian: If profit >= $5.00 and price pulls back > $1.50 -> Close immediately before returning to red!
-        early_5dollar_protection = (tick_peak_gain >= 5.0) and (latest_tick_price < (peak_tick_high - 1.50))
-        
-        # Autonomous Stagnation & Confluence Decay Exit: If profit sitting between $5-$9 and momentum weakens -> Harvest profit early!
-        stagnation_decay_exit = (tick_peak_gain >= 5.0 and tick_peak_gain < 10.0) and (not prob_approved or (osc_wave1 < osc_wave2 if is_intraday_bullish else osc_wave1 > osc_wave2))
-        
+        # Break-Even Lock at +$5.00 profit: Protect trade at Break-Even while letting runner ride for $150+!
         if tick_peak_gain >= 5.0 and tick_peak_gain < 10.0:
-            print(f"🛡️ Early $5.00 Profit Guardian Active: Peak Gain ${tick_peak_gain:.2f} | Protected at Break-Even + $1.00!")
+            print(f"🛡️ Break-Even Protection Active: Peak Gain ${tick_peak_gain:.2f} | Protected at Break-Even (Zero Risk) — Riding Runner!")
         elif tick_peak_gain >= 10.0:
             locked_profit_dollars = tick_peak_gain * 0.50
-            print(f"⚡ Sub-Second Tick Profit Protection Active: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick Price: ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
+            print(f"⚡ Sub-Second Tick Profit Ratchet Active: Peak Gain ${tick_peak_gain:.2f} | Current Price ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
 
-        # Exit if 5m intraday trend flips OR sub-30s tick pullback triggers OR early $5 protection OR stagnation exit triggers!
-        should_close = (not is_intraday_bullish and not is_intraday_bearish) or tick_pullback_triggered or early_5dollar_protection or stagnation_decay_exit
+        # Only exit when 5m intraday trend actually flips direction OR full trailing stop is hit!
+        should_close = not is_intraday_bullish if (hasattr(positions, "iterrows") and len(positions) > 0 and positions.iloc[0].get('side', '').lower() == 'buy') else not is_intraday_bearish
         
         if should_close:
             print(f">>> Sub-Second Tick Exit Triggered: Peak Tick ${peak_tick_high:.2f} | Closing to lock in profits.")
