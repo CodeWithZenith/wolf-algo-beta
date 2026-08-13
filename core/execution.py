@@ -231,13 +231,18 @@ def run_strategy_cycle():
     )
 
     EXECUTION_MODE = os.getenv("EXECUTION_MODE", "MAX_PROFIT").upper()
-
-    # Short Scalp Confluence Calculation (Intraday Bearish + WaveTrend Negative + MFI Negative)
+    # Strict Intraday Direction Priority
     is_intraday_bearish = intraday_close < intraday_hma if not np.isnan(intraday_hma) else False
-    is_short_confluence = is_intraday_bearish and (osc_wave1 < osc_wave2) and (osc_smf < 0.0) and prob_approved
+    is_wolf_osc_bullish = (osc_wave1 > osc_wave2) and (osc_smf > 0.0)
+    is_wolf_osc_bearish = (osc_wave1 < osc_wave2)
 
-    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and prob_approved
-    is_mtf_short_confluence = is_short_confluence and (EXECUTION_MODE == "MAX_PROFIT")
+    # Anti-Chase Dip Entry Guard: Ensure entry price is not extended > 1.5 ATR above 5m HMA (prevents top chasing!)
+    is_not_extended_peak = abs(intraday_close - intraday_hma) <= (current_atr * 1.50) if not np.isnan(intraday_hma) else True
+
+    # ABSOLUTE DIRECTION LOCK: If intraday is bearish OR oscillator is bearish -> NO BUYS ALLOWED!
+    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_wolf_osc_bullish and prob_approved and is_not_extended_peak and not is_intraday_bearish
+    # SHORT SNIPING CONFLUENCE: Triggered when 5m Intraday + Wolf Osc flip Bearish!
+    is_mtf_short_confluence = is_intraday_bearish and is_wolf_osc_bearish and (EXECUTION_MODE == "MAX_PROFIT") and prob_approved and is_not_extended_peak
 
     try:
         acc_state = tl.get_account_state()
@@ -274,11 +279,7 @@ def run_strategy_cycle():
     print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
     print(f"Autonomous Trade Probability Score: {prob_score}/100 {'[HIGH PROBABILITY 🚀]' if prob_approved else '[LOW/MED PROBABILITY ⏸️]'}")
     print(f"Active Probability Factors: {', '.join(prob_factors)}")
-    is_wolf_osc_bullish = (osc_wave1 > osc_wave2) and (osc_smf > 0.0)
-    # Anti-Chase Dip Entry Guard: Ensure entry price is not extended > 1.5 ATR above 5m HMA (prevents top chasing!)
-    is_not_extended_peak = abs(intraday_close - intraday_hma) <= (current_atr * 1.50) if not np.isnan(intraday_hma) else True
     
-    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_wolf_osc_bullish and prob_approved and is_not_extended_peak
     print(f"5m ATR Volatility: ${current_atr:.2f}")
     print(f"Account Equity: ${cash_balance:,.2f} | Dynamic Lot Size: {calculated_qty} lots")
     print(f"Actual Max Dollar Risk: ${actual_max_risk:.2f} (Trailing SL Distance: ${price_stop_distance:.2f} price points)")
