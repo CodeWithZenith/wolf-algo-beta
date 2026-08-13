@@ -226,17 +226,10 @@ def run_strategy_cycle():
         osc_smf=osc_smf,
         current_atr=current_atr,
         spread=0.25,
-        min_probability_threshold=75
+        min_probability_threshold=80
     )
 
     EXECUTION_MODE = os.getenv("EXECUTION_MODE", "MAX_PROFIT").upper()
-
-    # Short Scalp Confluence Calculation (Intraday Bearish + WaveTrend Negative + MFI Negative)
-    is_intraday_bearish = intraday_close < intraday_hma if not np.isnan(intraday_hma) else False
-    is_short_confluence = is_intraday_bearish and (osc_wave1 < osc_wave2) and (osc_smf < 0.0) and prob_approved
-
-    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and prob_approved
-    is_mtf_short_confluence = is_short_confluence and (EXECUTION_MODE == "MAX_PROFIT")
 
     try:
         acc_state = tl.get_account_state()
@@ -255,18 +248,19 @@ def run_strategy_cycle():
 
     contract_size = 100.0
 
-    # Lot Sizing & Dynamic Risk Scale based on Account Balance
-    # Base: 0.01 lots = $10 risk ($10 SL distance), max 0.05 lots = $50 risk until balance > $5,000
-    if cash_balance <= 5000.0:
-        calculated_qty = 0.01  # Conservative base 0.01 lot ($10 risk)
-    else:
-        # Scale lot size as account balance compounds beyond $5,000
-        calculated_qty = max(0.01, round((cash_balance / 5000.0) * 0.05, 2))
+    # Patient Trader-Mindset Sizing: 0.05 Lots Base ($20 hard max risk / $4.00 SL room)
+    calculated_qty = 0.05 if cash_balance <= 5000.0 else max(0.05, round((cash_balance / 5000.0) * 0.05, 2))
+    actual_max_risk = 20.0  # Hard -$20.00 max risk per trade!
+    price_stop_distance = 4.00  # $4.00 Gold price points room ($20 max loss at 0.05 lots)
 
-    # Dollar Risk determined directly by Lot Size ($1,000 risk per 1.00 lot | $10 risk per 0.01 lot)
-    actual_max_risk = round(calculated_qty * 1000.0, 2)
-    # Trailing Stop Loss price distance derived from lot size ($10.00 price points)
-    price_stop_distance = round(actual_max_risk / (calculated_qty * contract_size), 2)
+    # Patient Confluence Filter: Strict Alignment with 1D Trend + 5m HMA + Wolf Osc Wave1/Wave2 + MFI Money Flow
+    is_intraday_bearish = intraday_close < intraday_hma if not np.isnan(intraday_hma) else False
+    is_wolf_osc_bullish = (osc_wave1 > osc_wave2) and (osc_smf > 0.0)
+    is_wolf_osc_bearish = (osc_wave1 < osc_wave2) and (osc_smf < 0.0)
+
+    # ABSOLUTE PATIENT CONFLUENCE: Never trade against the Wolf Regime! Score MUST be >= 80/100!
+    is_mtf_bullish_confluence = is_macro_bullish and is_intraday_bullish and is_wolf_osc_bullish and prob_approved and not is_intraday_bearish
+    is_mtf_short_confluence = is_intraday_bearish and is_wolf_osc_bearish and prob_approved and (EXECUTION_MODE == "MAX_PROFIT")
 
     print(f"--- Autonomous MTF Trade Quality Evaluation for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f}")
@@ -422,12 +416,20 @@ def run_strategy_cycle():
         peak_tick_high = df_ticks['h'].max() if 'h' in df_ticks.columns else intraday_close
         lowest_tick_low = df_ticks['l'].min() if 'l' in df_ticks.columns else intraday_close
         
+        # Calculate real-time open PnL
+        is_long_pos = hasattr(positions, "iterrows") and len(positions) > 0 and positions.iloc[0].get('side', '').lower() == 'buy'
+        entry_price_val = float(positions.iloc[0].get('avgPrice', intraday_close)) if hasattr(positions, "iterrows") and len(positions) > 0 else intraday_close
+        current_pnl_dollars = (latest_tick_price - entry_price_val) * calculated_qty * 100.0 if is_long_pos else (entry_price_val - latest_tick_price) * calculated_qty * 100.0
+
+        # Hard -$20.00 Millisecond Loss Cut: If trade goes -$20 in loss -> Cut instantly!
+        hard_20dollar_loss_cut = current_pnl_dollars <= -20.0
+
         # Calculate real-time tick peak gain
         tick_peak_gain = max(
             (peak_tick_high - latest_tick_price) * calculated_qty * 100.0,
             (latest_tick_price - lowest_tick_low) * calculated_qty * 100.0
         )
-        
+
         # Instant Sub-30s Tick Pullback Guard: If tick gain >= $10 and price pulls back > $3.50 on ticks -> Instant Exit!
         tick_pullback_triggered = (tick_peak_gain >= 10.0) and (latest_tick_price < (peak_tick_high - 3.50))
         
@@ -437,14 +439,16 @@ def run_strategy_cycle():
         # Autonomous Stagnation & Confluence Decay Exit: If profit sitting between $5-$9 and momentum weakens -> Harvest profit early!
         stagnation_decay_exit = (tick_peak_gain >= 5.0 and tick_peak_gain < 10.0) and (not prob_approved or (osc_wave1 < osc_wave2 if is_intraday_bullish else osc_wave1 > osc_wave2))
         
-        if tick_peak_gain >= 5.0 and tick_peak_gain < 10.0:
+        if hard_20dollar_loss_cut:
+            print(f"✂️ Hard -$20.00 Loss Cut Triggered: PnL ${current_pnl_dollars:.2f} | Cutting loss immediately in sub-50ms!")
+        elif tick_peak_gain >= 5.0 and tick_peak_gain < 10.0:
             print(f"🛡️ Early $5.00 Profit Guardian Active: Peak Gain ${tick_peak_gain:.2f} | Protected at Break-Even + $1.00!")
         elif tick_peak_gain >= 10.0:
             locked_profit_dollars = tick_peak_gain * 0.50
             print(f"⚡ Sub-Second Tick Profit Protection Active: Peak Tick Gain ${tick_peak_gain:.2f} | Current Tick Price: ${latest_tick_price:.2f} | Locked Profit: +${locked_profit_dollars:.2f}")
 
-        # Exit if 5m intraday trend flips OR sub-30s tick pullback triggers OR early $5 protection OR stagnation exit triggers!
-        should_close = (not is_intraday_bullish and not is_intraday_bearish) or tick_pullback_triggered or early_5dollar_protection or stagnation_decay_exit
+        # Exit if 5m intraday trend flips OR hard -$20 loss cut OR sub-30s tick pullback triggers OR early $5 protection OR stagnation exit triggers!
+        should_close = hard_20dollar_loss_cut or (not is_intraday_bullish if is_long_pos else not is_intraday_bearish) or tick_pullback_triggered or early_5dollar_protection or stagnation_decay_exit
         
         if should_close:
             print(f">>> Sub-Second Tick Exit Triggered: Peak Tick ${peak_tick_high:.2f} | Closing to lock in profits.")
