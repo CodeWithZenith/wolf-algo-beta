@@ -155,6 +155,17 @@ def calculate_indicators(df: pd.DataFrame, hma_period: int = 20) -> pd.DataFrame
     df['ob_bullish'] = is_down_bar & (close > high.shift(1) + 1.0)
     df['ob_bearish'] = (~is_down_bar) & (close < low.shift(1) - 1.0)
 
+    # Warrior Momentum & Reversal Primitives (Hammer & CoC)
+    op = df['open'] if 'open' in df.columns else close.shift(1)
+    body_size = (close - op).abs()
+    lower_wick = np.minimum(close, op) - low
+    upper_wick = high - np.maximum(close, op)
+
+    df['warrior_hammer'] = (lower_wick >= body_size * 2.0) & (upper_wick <= body_size * 0.5) & (close > df['hma'])
+    df['warrior_star'] = (upper_wick >= body_size * 2.0) & (lower_wick <= body_size * 0.5) & (close < df['hma'])
+    df['warrior_coc_bullish'] = is_down_bar & (close > high.shift(1)) & (close > df['hma'])
+    df['warrior_coc_bearish'] = (~is_down_bar) & (close < low.shift(1)) & (close < df['hma'])
+
     return df
 
 
@@ -170,11 +181,12 @@ def evaluate_trade_probability(
     is_reversal_active: bool = False,
     is_sweep_active: bool = False,
     is_ob_active: bool = False,
+    is_warrior_active: bool = False,
     min_probability_threshold: int = 75
 ) -> tuple:
     """
     Autonomous Trade Probability & Quality Gatekeeper (0 to 100 Score).
-    Evaluates quantitative probability factors including IFVG, Reversals, Sweeps & Order Blocks:
+    Evaluates quantitative probability factors including Warrior Momentum & CoC:
       1. Macro-Intraday Trend Alignment (+25 pts)
       2. Hyper Wave Momentum (+20 pts)
       3. Smart Money Flow Accumulation (+20 pts)
@@ -184,6 +196,7 @@ def evaluate_trade_probability(
       7. Wolf Reversal Trigger (+15 pts)
       8. Liquidity Sweep / Judas Swing (+15 pts)
       9. Order Block Retest (+15 pts)
+      10. Warrior Hammer / CoC Momentum (+15 pts)
     """
     score = 0
     factors = []
@@ -223,6 +236,10 @@ def evaluate_trade_probability(
     if is_ob_active:
         score += 15
         factors.append("Institutional Order Block (+15)")
+
+    if is_warrior_active:
+        score += 15
+        factors.append("Warrior Hammer / CoC (+15)")
 
     approved = score >= min_probability_threshold
     return (approved, score, factors)
@@ -270,7 +287,8 @@ def run_strategy_cycle():
     is_sweep_bullish = bool(intraday_row.get('liquidity_sweep_bullish', False))
     is_sweep_bearish = bool(intraday_row.get('liquidity_sweep_bearish', False))
     is_ob_bullish = bool(intraday_row.get('ob_bullish', False))
-    is_ob_bearish = bool(intraday_row.get('ob_bearish', False))
+    is_warrior_bullish = bool(intraday_row.get('warrior_hammer', False)) or bool(intraday_row.get('warrior_coc_bullish', False))
+    is_warrior_bearish = bool(intraday_row.get('warrior_star', False)) or bool(intraday_row.get('warrior_coc_bearish', False))
 
     # 3. Autonomous Trade Quality & Probability Evaluation (0-100 Score)
     prob_approved, prob_score, prob_factors = evaluate_trade_probability(
@@ -285,6 +303,7 @@ def run_strategy_cycle():
         is_reversal_active=is_reversal_bullish or is_reversal_bearish,
         is_sweep_active=is_sweep_bullish or is_sweep_bearish,
         is_ob_active=is_ob_bullish or is_ob_bearish,
+        is_warrior_active=is_warrior_bullish or is_warrior_bearish,
         min_probability_threshold=80
     )
 
