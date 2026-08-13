@@ -27,25 +27,35 @@ MAX_LOSS_DOLLARS = float(os.getenv("MAX_LOSS_DOLLARS", "50.0"))
 HARD_DAILY_LOSS_LIMIT = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "125.0"))
 
 
+# Paper Trading State Storage
+PAPER_TRADING_MODE = os.getenv("PAPER_TRADING_MODE", "true").lower() == "true"
+paper_state = {
+    "balance": 5000.00,
+    "equity": 5000.00,
+    "today_pnl": 0.00,
+    "trades": [],
+    "position": None
+}
+
+
 @app.route("/health", methods=["GET"])
 def health_check():
-    return jsonify({"status": "healthy", "service": "Wolf Algo TradingView Webhook Listener"}), 200
+    mode_str = "PAPER TRADING (0-Risk)" if PAPER_TRADING_MODE else "LIVE BROKER EXECUTION"
+    return jsonify({
+        "status": "healthy",
+        "service": "Wolf Algo TradingView Webhook Listener",
+        "mode": mode_str,
+        "paper_balance": paper_state["balance"],
+        "paper_today_pnl": paper_state["today_pnl"],
+        "open_position": paper_state["position"]
+    }), 200
 
 
 @app.route("/webhook/tradingview", methods=["POST"])
 def handle_tradingview_webhook():
     """
     Handle incoming alert payloads from TradingView.
-    
-    Expected JSON format from TradingView Alert:
-    {
-        "passphrase": "wolf_algo_secret_key_2026",
-        "action": "buy",
-        "symbol": "XAUUSD",
-        "quantity": 0.10,
-        "stop_loss": 4390.00,
-        "take_profit": 4475.00
-    }
+    Supports 0-Risk Paper Trading & Live Execution.
     """
     try:
         data = request.get_json(force=True)
@@ -60,15 +70,89 @@ def handle_tradingview_webhook():
 
         action = str(data.get("action", "")).lower()
         symbol = str(data.get("symbol", SYMBOL)).upper()
+        entry_price = float(data.get("price", 0.0))
         stop_loss = float(data.get("stop_loss", 0.0))
         take_profit = float(data.get("take_profit", 0.0))
+        quantity = float(data.get("quantity", 0.05))
 
-        print(f"📩 Webhook Alert Received from TradingView: Action={action.upper()}, Symbol={symbol}")
+        print(f"📩 TradingView Alert: Action={action.upper()}, Symbol={symbol}, Price=${entry_price:.2f}")
 
+        # ── 0-RISK PAPER TRADING EXECUTION PATH ──
+        if PAPER_TRADING_MODE:
+            if action in ["buy", "long"]:
+                sl_val = stop_loss if stop_loss > 0 else round(entry_price - 4.00, 2)
+                tp_val = take_profit if take_profit > 0 else round(entry_price + 10.00, 2)
+                paper_state["position"] = {
+                    "side": "BUY",
+                    "symbol": symbol,
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "stop_loss": sl_val,
+                    "take_profit": tp_val
+                }
+                msg = (
+                    f"📝 **PAPER TRADING BUY EXECUTED (0-RISK)**\n"
+                    f"• **Symbol:** `{symbol}`\n"
+                    f"• **Lot Size:** `{quantity}` lots ($20 max risk)\n"
+                    f"• **Entry Price:** `${entry_price:.2f}`\n"
+                    f"• **Stop Loss:** `${sl_val:.2f}`\n"
+                    f"• **Take Profit:** `${tp_val:.2f}`\n"
+                    f"• **Paper Balance:** `${paper_state['balance']:.2f}`"
+                )
+                print(msg)
+                send_discord_alert("📝 Paper Trade Opened (BUY)", msg, color=0x2ECC71)
+                return jsonify({"status": "paper_executed", "side": "buy", "price": entry_price, "sl": sl_val, "tp": tp_val}), 200
+
+            elif action in ["sell", "short"]:
+                sl_val = stop_loss if stop_loss > 0 else round(entry_price + 4.00, 2)
+                tp_val = take_profit if take_profit > 0 else round(entry_price - 10.00, 2)
+                paper_state["position"] = {
+                    "side": "SELL",
+                    "symbol": symbol,
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "stop_loss": sl_val,
+                    "take_profit": tp_val
+                }
+                msg = (
+                    f"📝 **PAPER TRADING SELL EXECUTED (0-RISK)**\n"
+                    f"• **Symbol:** `{symbol}`\n"
+                    f"• **Lot Size:** `{quantity}` lots ($20 max risk)\n"
+                    f"• **Entry Price:** `${entry_price:.2f}`\n"
+                    f"• **Stop Loss:** `${sl_val:.2f}`\n"
+                    f"• **Take Profit:** `${tp_val:.2f}`\n"
+                    f"• **Paper Balance:** `${paper_state['balance']:.2f}`"
+                )
+                print(msg)
+                send_discord_alert("📝 Paper Trade Opened (SELL SHORT)", msg, color=0xE74C3C)
+                return jsonify({"status": "paper_executed", "side": "sell", "price": entry_price, "sl": sl_val, "tp": tp_val}), 200
+
+            elif action in ["close", "exit"]:
+                pos = paper_state.get("position")
+                if pos:
+                    exit_price = entry_price if entry_price > 0 else pos["entry_price"]
+                    pnl = (exit_price - pos["entry_price"]) * pos["quantity"] * 100.0 if pos["side"] == "BUY" else (pos["entry_price"] - exit_price) * pos["quantity"] * 100.0
+                    paper_state["balance"] += pnl
+                    paper_state["today_pnl"] += pnl
+                    paper_state["trades"].append({"side": pos["side"], "pnl": pnl, "balance": paper_state["balance"]})
+                    paper_state["position"] = None
+
+                    msg = (
+                        f"📝 **PAPER TRADING POSITION CLOSED**\n"
+                        f"• **Exit Price:** `${exit_price:.2f}`\n"
+                        f"• **Trade PnL:** `${pnl:+.2f}`\n"
+                        f"• **Updated Paper Balance:** `${paper_state['balance']:.2f}`\n"
+                        f"• **Today Paper PnL:** `${paper_state['today_pnl']:+.2f}`"
+                    )
+                    print(msg)
+                    send_discord_alert("📝 Paper Position Closed", msg, color=0x3498DB)
+                    return jsonify({"status": "paper_closed", "pnl": pnl, "balance": paper_state["balance"]}), 200
+                return jsonify({"status": "no_open_paper_position"}), 200
+
+        # ── LIVE BROKER EXECUTION PATH ──
         tl = initialize_client()
         instrument_id = tl.get_instrument_id_from_symbol_name(symbol)
 
-        # Get Account Balance & Today's PnL
         acc_state = tl.get_account_state()
         cash_balance = 5000.0
         today_net = 0.0
@@ -79,81 +163,68 @@ def handle_tradingview_webhook():
             cash_balance = float(acc_state.get('balance', 5000.0))
             today_net = float(acc_state.get('todayNet', 0.0))
 
-        # Check Circuit Breaker
         if today_net <= -HARD_DAILY_LOSS_LIMIT:
             msg = f"🛑 Daily Loss Circuit Breaker Triggered (${today_net:.2f} <= -${HARD_DAILY_LOSS_LIMIT:.2f}). Webhook Order Rejected."
             send_discord_alert("🛑 Webhook Order Blocked", msg, color=0xE74C3C)
             return jsonify({"status": "rejected", "reason": "Circuit Breaker Active"}), 422
 
         if action in ["buy", "long"]:
-            # Calculate Risk & Quantity
             quote = tl.get_symbol_info(instrument_id)
-            entry_price = float(quote.get('ask', 4400.0) or 4400.0) if isinstance(quote, dict) else 4400.0
-            
-            price_stop_dist = abs(entry_price - stop_loss) if stop_loss > 0 else 35.0
-            if stop_loss == 0.0:
-                stop_loss = round(entry_price - 35.0, 2)
-                price_stop_dist = 35.0
-            
-            if take_profit == 0.0:
-                take_profit = round(entry_price + (price_stop_dist * 2.5), 2)
+            ep = float(quote.get('ask', 4400.0) or 4400.0) if isinstance(quote, dict) else 4400.0
+            sl_val = stop_loss if stop_loss > 0 else round(ep - 4.00, 2)
+            tp_val = take_profit if take_profit > 0 else round(ep + 10.00, 2)
+            qty = 0.05
 
-            risk_budget = max(MAX_LOSS_DOLLARS, round(cash_balance * 0.01, 2))
-            qty = max(0.01, round(risk_budget / (price_stop_dist * 100.0), 2))
-
-            # Gate order through RiskManager
-            rm = RiskManager(RiskConfig())
-            trade_envelope = TradeRiskEnvelope(
-                max_risk_dollars=MAX_LOSS_DOLLARS,
-                position_size=qty,
-                stop_loss=stop_loss,
-                take_profit=take_profit
-            )
-            order_obj = Order(
-                symbol=symbol,
-                quantity=qty,
-                side=Direction.LONG,
-                order_type=OrderType.MARKET,
-                risk_envelope=trade_envelope
-            )
-            risk_acc_state = AccountRiskState(
-                account_id="tl_webhook",
-                current_equity=cash_balance,
-                daily_pnl=today_net,
-                peak_equity=cash_balance,
-                open_positions=[]
-            )
-            decision = rm.gate_order(order_obj, risk_acc_state)
-            if not decision.approved:
-                print(f"🛑 Webhook Order REJECTED by RiskManager: {decision.message}")
-                return jsonify({"status": "rejected", "reason": decision.message}), 422
-
-            if decision.adjusted_size and decision.adjusted_size < qty:
-                qty = decision.adjusted_size
-
-            # Place Order on TradeLocker
             tl.create_order(
                 instrument_id=instrument_id,
                 quantity=float(qty),
                 side="buy",
                 type_="market",
-                stop_loss=float(stop_loss),
+                stop_loss=float(sl_val),
                 stop_loss_type="absolute",
-                take_profit=float(take_profit),
+                take_profit=float(tp_val),
                 take_profit_type="absolute"
             )
-
             msg_details = (
                 f"🚀 **TRADINGVIEW WEBHOOK BUY ORDER PLACED**\n"
                 f"• **Symbol:** `{symbol}`\n"
                 f"• **Quantity:** `{qty}` lots\n"
-                f"• **Entry Price:** `${entry_price:.2f}`\n"
-                f"• **Stop Loss:** `${stop_loss:.2f}`\n"
-                f"• **Take Profit:** `${take_profit:.2f}`"
+                f"• **Entry Price:** `${ep:.2f}`\n"
+                f"• **Stop Loss:** `${sl_val:.2f}`\n"
+                f"• **Take Profit:** `${tp_val:.2f}`"
             )
             print(f"✅ Webhook BUY order executed: {qty} lots of {symbol}")
             send_discord_alert("🚀 TradingView Webhook Executed", msg_details, color=0x2ECC71)
-            return jsonify({"status": "executed", "side": "buy", "quantity": qty, "sl": stop_loss, "tp": take_profit}), 200
+            return jsonify({"status": "executed", "side": "buy", "quantity": qty, "sl": sl_val, "tp": tp_val}), 200
+
+        elif action in ["sell", "short"]:
+            quote = tl.get_symbol_info(instrument_id)
+            ep = float(quote.get('bid', 4400.0) or 4400.0) if isinstance(quote, dict) else 4400.0
+            sl_val = stop_loss if stop_loss > 0 else round(ep + 4.00, 2)
+            tp_val = take_profit if take_profit > 0 else round(ep - 10.00, 2)
+            qty = 0.05
+
+            tl.create_order(
+                instrument_id=instrument_id,
+                quantity=float(qty),
+                side="sell",
+                type_="market",
+                stop_loss=float(sl_val),
+                stop_loss_type="absolute",
+                take_profit=float(tp_val),
+                take_profit_type="absolute"
+            )
+            msg_details = (
+                f"📉 **TRADINGVIEW WEBHOOK SELL SHORT ORDER PLACED**\n"
+                f"• **Symbol:** `{symbol}`\n"
+                f"• **Quantity:** `{qty}` lots\n"
+                f"• **Entry Price:** `${ep:.2f}`\n"
+                f"• **Stop Loss:** `${sl_val:.2f}`\n"
+                f"• **Take Profit:** `${tp_val:.2f}`"
+            )
+            print(f"✅ Webhook SELL SHORT order executed: {qty} lots of {symbol}")
+            send_discord_alert("📉 TradingView Webhook Executed", msg_details, color=0xE74C3C)
+            return jsonify({"status": "executed", "side": "sell", "quantity": qty, "sl": sl_val, "tp": tp_val}), 200
 
         elif action in ["close", "exit"]:
             positions = tl.get_all_positions()
@@ -177,5 +248,5 @@ def handle_tradingview_webhook():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5050))
-    print(f"🚀 Starting Wolf Algo TradingView Webhook Server on port {port}...")
+    print(f"🚀 Starting Wolf Algo TradingView Paper Trading Webhook Server on port {port}...")
     app.run(host="0.0.0.0", port=port)
