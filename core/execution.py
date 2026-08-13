@@ -204,17 +204,23 @@ def evaluate_trade_probability(
     score = 0
     factors = []
 
-    if is_macro_bullish and is_intraday_bullish:
+    # Directional Alignment (Long or Short)
+    is_trend_aligned = (is_macro_bullish and is_intraday_bullish) or (not is_macro_bullish and not is_intraday_bullish)
+    if is_trend_aligned:
         score += 25
-        factors.append("Macro+Intraday Trend (+25)")
+        factors.append("Macro+Intraday Trend Alignment (+25)")
 
-    if osc_wave1 > osc_wave2:
+    # Hyper Wave Momentum Alignment (Long: wave1 > wave2, Short: wave1 < wave2)
+    is_wave_aligned = (is_intraday_bullish and osc_wave1 > osc_wave2) or (not is_intraday_bullish and osc_wave1 < osc_wave2)
+    if is_wave_aligned:
         score += 20
-        factors.append("Hyper Wave Bullish (+20)")
+        factors.append("Hyper Wave Momentum Alignment (+20)")
 
-    if osc_smf > 0:
+    # Smart Money Flow Alignment (Long: smf > 0, Short: smf < 0)
+    is_smf_aligned = (is_intraday_bullish and osc_smf > 0) or (not is_intraday_bullish and osc_smf < 0)
+    if is_smf_aligned:
         score += 20
-        factors.append("Smart Money Inflow (+20)")
+        factors.append("Smart Money Flow Alignment (+20)")
 
     if 2.0 <= current_atr <= 15.0:
         score += 20
