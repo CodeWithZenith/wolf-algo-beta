@@ -91,17 +91,24 @@ def handle_discord_command(command_str: str) -> str:
     elif cmd in ["!buy", "buy", "!long", "long"]:
         try:
             tl = initialize_client()
-            inst_id = tl.get_instrument_id_from_symbol_name(SYMBOL) if hasattr(tl, "get_instrument_id_from_symbol_name") else 13676
-            # Place 0.05 lot BUY with $1.00 Gold SL ($5.00 max risk)
+            from core.execution import resolve_instrument_id
+            inst_id = resolve_instrument_id(tl, SYMBOL)
+            history = tl.get_price_history(inst_id, resolution="5m", lookback_period="1D")
+            curr_price = history[-1]['c'] if history and len(history) > 0 else 4350.0
+            sl_price = round(curr_price - 1.00, 2)
+            tp_price = round(curr_price + 30.00, 2)
+
             order_id = tl.create_order(
                 instrument_id=inst_id,
                 quantity=0.05,
                 side="buy",
                 type_="market",
-                stop_loss=0.0,  # Will attach structural SL
-                take_profit=0.0
+                stop_loss=sl_price,
+                stop_loss_type="absolute",
+                take_profit=tp_price,
+                take_profit_type="absolute"
             )
-            msg = f"🚀 **DISCORD COMMAND EXECUTED: PLACED BUY LONG ORDER (0.05 Lots)**\n• Order ID: `{order_id}`\n• Max Risk: `-$5.00` ($1.00 trailing SL distance)"
+            msg = f"🚀 **DISCORD COMMAND EXECUTED: PLACED BUY LONG ORDER (0.05 Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+$1.00 Gold distance | Max Risk: `-$5.00`)\n• Order ID: `{order_id}`"
             send_discord_reply(msg)
             return msg
         except Exception as e:
@@ -113,17 +120,24 @@ def handle_discord_command(command_str: str) -> str:
     elif cmd in ["!sell", "sell", "!short", "short"]:
         try:
             tl = initialize_client()
-            inst_id = tl.get_instrument_id_from_symbol_name(SYMBOL) if hasattr(tl, "get_instrument_id_from_symbol_name") else 13676
-            # Place 0.05 lot SELL SHORT with $1.00 Gold SL ($5.00 max risk)
+            from core.execution import resolve_instrument_id
+            inst_id = resolve_instrument_id(tl, SYMBOL)
+            history = tl.get_price_history(inst_id, resolution="5m", lookback_period="1D")
+            curr_price = history[-1]['c'] if history and len(history) > 0 else 4350.0
+            sl_price = round(curr_price + 1.00, 2)
+            tp_price = round(curr_price - 30.00, 2)
+
             order_id = tl.create_order(
                 instrument_id=inst_id,
                 quantity=0.05,
                 side="sell",
                 type_="market",
-                stop_loss=0.0,
-                take_profit=0.0
+                stop_loss=sl_price,
+                stop_loss_type="absolute",
+                take_profit=tp_price,
+                take_profit_type="absolute"
             )
-            msg = f"📉 **DISCORD COMMAND EXECUTED: PLACED SELL SHORT ORDER (0.05 Lots)**\n• Order ID: `{order_id}`\n• Max Risk: `-$5.00` ($1.00 trailing SL distance)"
+            msg = f"📉 **DISCORD COMMAND EXECUTED: PLACED SELL SHORT ORDER (0.05 Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+$1.00 Gold distance | Max Risk: `-$5.00`)\n• Order ID: `{order_id}`"
             send_discord_reply(msg)
             return msg
         except Exception as e:
