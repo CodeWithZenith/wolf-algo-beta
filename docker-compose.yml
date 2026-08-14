@@ -11,6 +11,26 @@ services:
       - .:/app
     entrypoint: ["python", "core/execution.py"]
 
+  wolf-algo-discord:
+    build: .
+    container_name: wolf_algo_discord_listener
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    entrypoint: ["python", "core/discord_bot.py"]
+
+  wolf-algo-equity-scanner:
+    build: .
+    container_name: wolf_algo_equity_scanner
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    entrypoint: ["python", "core/equity_scanner.py"]
+
   wolf-algo-webhook:
     build: .
     container_name: wolf_algo_tradingview_webhook

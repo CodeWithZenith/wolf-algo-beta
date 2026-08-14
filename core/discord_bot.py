@@ -94,7 +94,13 @@ def handle_discord_command(command_str: str) -> str:
             from core.execution import resolve_instrument_id
             inst_id = resolve_instrument_id(tl, SYMBOL)
             history = tl.get_price_history(inst_id, resolution="5m", lookback_period="1D")
-            curr_price = history[-1]['c'] if history and len(history) > 0 else 4350.0
+            if hasattr(history, "iloc") and len(history) > 0:
+                curr_price = float(history['c'].iloc[-1])
+            elif isinstance(history, list) and len(history) > 0:
+                curr_price = float(history[-1]['c'])
+            else:
+                curr_price = 4350.0
+
             sl_price = round(curr_price - 1.00, 2)
             tp_price = round(curr_price + 30.00, 2)
 
@@ -123,7 +129,13 @@ def handle_discord_command(command_str: str) -> str:
             from core.execution import resolve_instrument_id
             inst_id = resolve_instrument_id(tl, SYMBOL)
             history = tl.get_price_history(inst_id, resolution="5m", lookback_period="1D")
-            curr_price = history[-1]['c'] if history and len(history) > 0 else 4350.0
+            if hasattr(history, "iloc") and len(history) > 0:
+                curr_price = float(history['c'].iloc[-1])
+            elif isinstance(history, list) and len(history) > 0:
+                curr_price = float(history[-1]['c'])
+            else:
+                curr_price = 4350.0
+
             sl_price = round(curr_price + 1.00, 2)
             tp_price = round(curr_price - 30.00, 2)
 
@@ -186,12 +198,58 @@ def handle_discord_command(command_str: str) -> str:
         send_discord_reply(msg)
         return msg
 
+    # 8. EQUITY MOMENTUM SCANNER COMMAND
+    elif cmd in ["!scan", "scan", "!equity", "equity", "!gappers", "gappers"]:
+        try:
+            send_discord_reply("🔍 **Running Equity Momentum Gapper Scanner (Ross Cameron Strategy)...**")
+            from core.equity_scanner import fetch_top_equity_gappers, send_equity_gapper_discord_alert
+            gappers = fetch_top_equity_gappers()
+            if not gappers:
+                msg = "📊 **Equity Scanner Result:** No stocks currently meet all 5 Guardrail criteria ($2-$20, >10% gain, RVOL >= 2.0x, float <= 50M)."
+                send_discord_reply(msg)
+                return msg
+
+            summary_lines = [f"🚀 **Found {len(gappers)} Top Equity Gappers (Guardrail Strategy):**"]
+            for g in gappers[:5]:
+                send_equity_gapper_discord_alert(g)
+                flt_m = g['float_shares'] / 1_000_000.0
+                summary_lines.append(f"• **${g['symbol']}**: `${g['price']:.2f}` | `+{g['pct_change']}%` | RVOL: `{g['rvol']}x` | Float: `{flt_m:.1f}M`")
+            
+            res_msg = "\n".join(summary_lines)
+            return res_msg
+        except Exception as e:
+            err = f"❌ Failed to run equity scanner: {e}"
+            send_discord_reply(err)
+            return err
+
     return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold"
 
 
 if __name__ == "__main__":
     print("🤖 Starting Wolf Algo Interactive Discord Listener...")
-    if DISCORD_BOT_TOKEN:
-        print("Connected with Discord Bot Token!")
+    token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+    if token:
+        import ssl
+        import aiohttp
+        import discord
+
+        class WolfDiscordBot(discord.Client):
+            async def on_ready(self):
+                print(f"🎉 SUCCESS! Logged into Discord Gateway as Bot: {self.user} (ID: {self.user.id})")
+                send_discord_reply(f"🟢 **Wolf Algo Discord Gateway Listener Online!** (Bot: `{self.user}`)\nI am now listening to your typed commands in this channel!")
+
+            async def on_message(self, message):
+                # Ignore self messages
+                if message.author.id == self.user.id:
+                    return
+                content = message.content.strip().lower()
+                if content.startswith("!") or content in ["pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold", "pause", "resume"]:
+                    print(f"📩 Received Discord channel command: '{content}' from {message.author}")
+                    handle_discord_command(content)
+
+        intents = discord.Intents.default()
+        intents.message_content = True
+        client = WolfDiscordBot(intents=intents)
+        client.run(token)
     else:
-        print("Webhook / Command Dispatch Mode Active.")
+        print("No DISCORD_BOT_TOKEN provided. Webhook dispatch mode active.")
