@@ -202,21 +202,19 @@ def handle_discord_command(command_str: str) -> str:
     elif cmd in ["!scan", "scan", "!equity", "equity", "!gappers", "gappers"]:
         try:
             send_discord_reply("🔍 **Running Equity Momentum Gapper Scanner (Ross Cameron Strategy)...**")
-            from core.equity_scanner import fetch_top_equity_gappers, send_equity_gapper_discord_alert
-            gappers = fetch_top_equity_gappers()
+            from core.equity_scanner import fetch_top_equity_gappers, format_gappers_as_table_chunks
+            gappers = fetch_top_equity_gappers(top_n=50)
             if not gappers:
                 msg = "📊 **Equity Scanner Result:** No stocks currently meet all 5 Guardrail criteria ($2-$20, >10% gain, RVOL >= 2.0x, float <= 50M)."
                 send_discord_reply(msg)
                 return msg
 
-            summary_lines = [f"🚀 **Found {len(gappers)} Top Equity Gappers (Guardrail Strategy):**"]
-            for g in gappers[:5]:
-                send_equity_gapper_discord_alert(g)
-                flt_m = g['float_shares'] / 1_000_000.0
-                summary_lines.append(f"• **${g['symbol']}**: `${g['price']:.2f}` | `+{g['pct_change']}%` | RVOL: `{g['rvol']}x` | Float: `{flt_m:.1f}M`")
+            table_chunks = format_gappers_as_table_chunks(gappers, max_items=50)
+            # Send first chunk as direct return, rest via webhook if multi-chunk
+            for chunk in table_chunks[1:]:
+                send_discord_reply(chunk)
             
-            res_msg = "\n".join(summary_lines)
-            return res_msg
+            return table_chunks[0]
         except Exception as e:
             err = f"❌ Failed to run equity scanner: {e}"
             send_discord_reply(err)

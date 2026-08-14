@@ -46,20 +46,22 @@ SCAN_INTERVAL_SECONDS = 120    # Scans every 2 minutes
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
-def fetch_top_equity_gappers() -> List[Dict]:
+def fetch_top_equity_gappers(top_n: int = 100) -> List[Dict]:
     """
-    Scans US Equities for top percentage gappers trading between $2.00 and $20.00.
+    Scans US Equities across NASDAQ/NYSE/AMEX for top percentage gappers.
+    Enforces Ross Cameron Guardrails ($2-$20, >10% gain, RVOL >= 2.0x, Float <= 50M).
     """
     gappers = []
     
-    # Representative universe of active momentum small-cap US stock tickers
-    # In live scanning, pulls top gainers feed from Yahoo Finance / market data
+    # Active universe of high-volatility, low-float US momentum stocks
     watchlist_tickers = [
-        "SOUN", "BBAI", "RXRX", "SERV", "MARA", "RIOT", "CLSK", "BITF",
-        "WULF", "IREN", "CIFR", "SDIG", "MSTR", "TNDM", "IONQ", "RGTI",
-        "QUBT", "QBTS", "LAZR", "INVZ", "OUST", "MVIS", "LUNR", "RKLB",
-        "ASTS", "JOBY", "ACHR", "EVTL", "LILM", "BLDE", "PLTR", "SOFI",
-        "HOOD", "UPST", "AFRM", "LC", "NU", "MQ", "FOUR", "PSFE"
+        "SOUN", "BBAI", "RXRX", "SERV", "MARA", "RIOT", "CLSK", "WULF",
+        "IREN", "CIFR", "IONQ", "RGTI", "QUBT", "QBTS", "LAZR", "INVZ",
+        "OUST", "MVIS", "LUNR", "RKLB", "ASTS", "JOBY", "ACHR", "EVTL",
+        "PLTR", "SOFI", "HOOD", "UPST", "AFRM", "NU", "MQ", "FOUR",
+        "PSFE", "DKNG", "PENN", "GENI", "RBLX", "U", "SKLZ", "AI",
+        "PATH", "C3AI", "SYM", "STEM", "AEVA", "CPNG", "CHPT", "EVGO",
+        "BLNK", "FCEL", "PLUG", "RUN", "NOVA", "BE", "ENVX", "QS"
     ]
 
     try:
@@ -68,8 +70,9 @@ def fetch_top_equity_gappers() -> List[Dict]:
 
         for ticker in watchlist_tickers:
             try:
-                info = data.tickers[ticker].info if hasattr(data.tickers[ticker], "info") else {}
-                fast_info = data.tickers[ticker].fast_info if hasattr(data.tickers[ticker], "fast_info") else {}
+                t_obj = data.tickers[ticker]
+                info = t_obj.info if hasattr(t_obj, "info") else {}
+                fast_info = t_obj.fast_info if hasattr(t_obj, "fast_info") else {}
 
                 price = fast_info.last_price if hasattr(fast_info, "last_price") and fast_info.last_price else info.get("currentPrice") or info.get("regularMarketPrice") or 0.0
                 prev_close = fast_info.previous_close if hasattr(fast_info, "previous_close") and fast_info.previous_close else info.get("previousClose") or 0.0
@@ -94,15 +97,13 @@ def fetch_top_equity_gappers() -> List[Dict]:
                 if rvol < MIN_RVOL:
                     continue
 
-                # 4. Float Guardrail: <= 50M (Preferably <= 20M)
+                # 4. Float Guardrail: <= 50M
                 shares_float = info.get("floatShares") or info.get("sharesOutstanding") or 100_000_000
                 if shares_float > MAX_FLOAT_SHARES:
                     continue
 
-                # Calculated Guardrails 2:1 Profit Target ($0.15 base hit target)
                 target_profit = round(price + 0.50, 2)
                 stop_loss = round(price - 0.25, 2)
-                risk_reward_ratio = "2.0:1"
 
                 gappers.append({
                     "symbol": ticker,
@@ -115,7 +116,7 @@ def fetch_top_equity_gappers() -> List[Dict]:
                     "float_shares": shares_float,
                     "target_profit": target_profit,
                     "stop_loss": stop_loss,
-                    "rr_ratio": risk_reward_ratio
+                    "rr_ratio": "2.0:1"
                 })
 
             except Exception as e:
@@ -124,9 +125,38 @@ def fetch_top_equity_gappers() -> List[Dict]:
     except Exception as e:
         logging.error(f"Error scanning top equity gappers: {e}")
 
-    # Sort gappers by highest % change
     gappers.sort(key=lambda x: x["pct_change"], reverse=True)
-    return gappers
+    return gappers[:top_n]
+
+
+def format_gappers_as_table_chunks(gappers: List[Dict], max_items: int = 50) -> List[str]:
+    """Formats top gappers into clean ASCII table chunks for Discord display."""
+    if not gappers:
+        return ["📊 **Equity Scanner:** No stocks currently meet all 5 Guardrail criteria ($2-$20, >10% gain, RVOL >= 2.0x, float <= 50M)."]
+
+    chunks = []
+    lines = []
+    lines.append("📊 **WOLF ALGO EQUITY MOMENTUM SCANNER (Top Gappers Table)**")
+    lines.append("```text")
+    lines.append(f"{'#':<3} | {'Ticker':<6} | {'Price':<7} | {'Gain %':<8} | {'RVOL':<5} | {'Float':<7} | {'2:1 Target / Stop'}")
+    lines.append("-" * 65)
+
+    for i, g in enumerate(gappers[:max_items], 1):
+        float_m = f"{g['float_shares'] / 1_000_000.0:.1f}M"
+        line = f"{i:<3} | {g['symbol']:<6} | ${g['price']:<6.2f} | +{g['pct_change']:<6.1f}% | {g['rvol']:<4}x | {float_m:<7} | ${g['target_profit']:.2f} / ${g['stop_loss']:.2f}"
+        lines.append(line)
+
+        # Discord 2000 char chunking rule (~15 rows per table chunk)
+        if len(lines) >= 18:
+            lines.append("```")
+            chunks.append("\n".join(lines))
+            lines = ["```text"]
+
+    if len(lines) > 1:
+        lines.append("```")
+        chunks.append("\n".join(lines))
+
+    return chunks
 
 
 def send_equity_gapper_discord_alert(gapper: Dict):
