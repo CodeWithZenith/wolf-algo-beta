@@ -184,6 +184,9 @@ class PaperBrokerClient:
 _GLOBAL_PAPER_BROKER = None
 
 
+TL_ACCOUNT_ID = os.getenv("TL_ACCOUNT_ID", "").strip()
+
+
 def initialize_client():
     """Initialize client: Uses persistent PaperBrokerClient when PAPER_TRADING_MODE is true or credentials absent."""
     global _GLOBAL_PAPER_BROKER
@@ -193,11 +196,19 @@ def initialize_client():
             _GLOBAL_PAPER_BROKER = PaperBrokerClient()
         return _GLOBAL_PAPER_BROKER
 
+    kw = {}
+    if TL_ACCOUNT_ID:
+        try:
+            kw["account_id"] = int(TL_ACCOUNT_ID)
+        except ValueError:
+            pass
+
     return TLAPI(
         environment=TL_ENVIRONMENT,
         username=TL_USERNAME,
         password=TL_PASSWORD,
-        server=TL_SERVER
+        server=TL_SERVER,
+        **kw
     )
 
 
