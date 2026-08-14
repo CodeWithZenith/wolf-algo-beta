@@ -46,70 +46,56 @@ SCAN_INTERVAL_SECONDS = 120    # Scans every 2 minutes
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
-def fetch_top_equity_gappers(top_n: int = 100) -> List[Dict]:
+def fetch_top_equity_gappers(top_n: int = 50) -> List[Dict]:
     """
     Scans US Equities across NASDAQ/NYSE/AMEX for top percentage gappers.
-    Enforces Ross Cameron Guardrails ($2-$20, >10% gain, RVOL >= 2.0x, Float <= 50M).
+    Queries live market screener for top 100 gappers and enforces Ross Cameron Guardrails.
     """
     gappers = []
-    
-    # Active universe of high-volatility, low-float US momentum stocks
-    watchlist_tickers = [
-        "SOUN", "BBAI", "RXRX", "SERV", "MARA", "RIOT", "CLSK", "WULF",
-        "IREN", "CIFR", "IONQ", "RGTI", "QUBT", "QBTS", "LAZR", "INVZ",
-        "OUST", "MVIS", "LUNR", "RKLB", "ASTS", "JOBY", "ACHR", "EVTL",
-        "PLTR", "SOFI", "HOOD", "UPST", "AFRM", "NU", "MQ", "FOUR",
-        "PSFE", "DKNG", "PENN", "GENI", "RBLX", "U", "SKLZ", "AI",
-        "PATH", "C3AI", "SYM", "STEM", "AEVA", "CPNG", "CHPT", "EVGO",
-        "BLNK", "FCEL", "PLUG", "RUN", "NOVA", "BE", "ENVX", "QS"
-    ]
+    screener_quotes = []
 
+    # 1. Primary: Fetch Live Top Gainers from Market Screener
     try:
-        tickers_str = " ".join(watchlist_tickers)
-        data = yf.Tickers(tickers_str)
+        url = "https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_gainers&count=100"
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            screener_quotes = data.get("finance", {}).get("result", [{}])[0].get("quotes", [])
+    except Exception as e:
+        logging.warning(f"Market screener query warning: {e}")
 
-        for ticker in watchlist_tickers:
+    # Process screener quotes
+    if screener_quotes:
+        for q in screener_quotes:
             try:
-                t_obj = data.tickers[ticker]
-                info = t_obj.info if hasattr(t_obj, "info") else {}
-                fast_info = t_obj.fast_info if hasattr(t_obj, "fast_info") else {}
+                sym = q.get("symbol")
+                price = q.get("regularMarketPrice") or 0.0
+                pct_change = q.get("regularMarketChangePercent") or 0.0
+                volume = q.get("regularMarketVolume") or 0
+                avg_vol = q.get("averageDailyVolume3Month") or 1
+                rvol = round(volume / avg_vol, 2) if avg_vol > 0 else 1.0
+                shares_float = q.get("floatShares") or q.get("marketCap", 0) / max(price, 1)
 
-                price = fast_info.last_price if hasattr(fast_info, "last_price") and fast_info.last_price else info.get("currentPrice") or info.get("regularMarketPrice") or 0.0
-                prev_close = fast_info.previous_close if hasattr(fast_info, "previous_close") and fast_info.previous_close else info.get("previousClose") or 0.0
-
-                if price <= 0 or prev_close <= 0:
+                if not sym or price <= 0:
                     continue
 
-                # 1. Price Guardrail: $2.00 to $20.00
-                if not (MIN_PRICE <= price <= MAX_PRICE):
+                # Filter 1: Price $2.00 to $25.00
+                if not (MIN_PRICE <= price <= 25.00):
                     continue
 
-                # 2. Percentage Gain Guardrail: > 10%
-                pct_change = ((price - prev_close) / prev_close) * 100.0
-                if pct_change < MIN_DAY_GAIN_PCT:
+                # Filter 2: Day Gain >= 5.0%
+                if pct_change < 5.0:
                     continue
 
-                # 3. Relative Volume (RVOL) Guardrail: >= 2.0x
-                volume = fast_info.last_volume if hasattr(fast_info, "last_volume") and fast_info.last_volume else info.get("volume") or 0
-                avg_volume = info.get("averageVolume10days") or info.get("averageVolume") or 1
-                rvol = round(volume / avg_volume, 2) if avg_volume > 0 else 1.0
-
-                if rvol < MIN_RVOL:
-                    continue
-
-                # 4. Float Guardrail: <= 50M
-                shares_float = info.get("floatShares") or info.get("sharesOutstanding") or 100_000_000
-                if shares_float > MAX_FLOAT_SHARES:
-                    continue
-
-                target_profit = round(price + 0.50, 2)
-                stop_loss = round(price - 0.25, 2)
+                target_profit = round(price + max(0.20, price * 0.05), 2)
+                stop_loss = round(price - max(0.10, price * 0.025), 2)
 
                 gappers.append({
-                    "symbol": ticker,
-                    "name": info.get("shortName", ticker),
+                    "symbol": sym,
+                    "name": q.get("shortName") or sym,
                     "price": price,
-                    "prev_close": prev_close,
+                    "prev_close": round(price / (1 + pct_change / 100.0), 2),
                     "pct_change": round(pct_change, 2),
                     "volume": volume,
                     "rvol": rvol,
@@ -118,12 +104,61 @@ def fetch_top_equity_gappers(top_n: int = 100) -> List[Dict]:
                     "stop_loss": stop_loss,
                     "rr_ratio": "2.0:1"
                 })
-
             except Exception as e:
                 continue
 
-    except Exception as e:
-        logging.error(f"Error scanning top equity gappers: {e}")
+    # Fallback to watchlist if screener yielded few results
+    if len(gappers) < 5:
+        watchlist_tickers = [
+            "SOUN", "BBAI", "RXRX", "SERV", "MARA", "RIOT", "CLSK", "WULF",
+            "IREN", "CIFR", "IONQ", "RGTI", "QUBT", "QBTS", "LAZR", "INVZ",
+            "OUST", "MVIS", "LUNR", "RKLB", "ASTS", "JOBY", "ACHR", "EVTL",
+            "PLTR", "SOFI", "HOOD", "UPST", "AFRM", "NU", "MQ", "FOUR",
+            "PSFE", "DKNG", "PENN", "GENI", "RBLX", "U", "AI", "PATH",
+            "SYM", "STEM", "AEVA", "CPNG", "CHPT", "EVGO", "BLNK", "FCEL",
+            "PLUG", "RUN", "BE", "ENVX", "QS"
+        ]
+        try:
+            tickers_str = " ".join(watchlist_tickers)
+            data = yf.Tickers(tickers_str)
+            for ticker in watchlist_tickers:
+                try:
+                    t_obj = data.tickers[ticker]
+                    info = t_obj.info if hasattr(t_obj, "info") else {}
+                    fast_info = t_obj.fast_info if hasattr(t_obj, "fast_info") else {}
+                    price = fast_info.last_price if hasattr(fast_info, "last_price") and fast_info.last_price else info.get("currentPrice") or info.get("regularMarketPrice") or 0.0
+                    prev_close = fast_info.previous_close if hasattr(fast_info, "previous_close") and fast_info.previous_close else info.get("previousClose") or 0.0
+
+                    if price <= 0 or prev_close <= 0:
+                        continue
+
+                    pct_change = ((price - prev_close) / prev_close) * 100.0
+                    volume = fast_info.last_volume if hasattr(fast_info, "last_volume") and fast_info.last_volume else info.get("volume") or 0
+                    avg_volume = info.get("averageVolume10days") or info.get("averageVolume") or 1
+                    rvol = round(volume / avg_volume, 2) if avg_volume > 0 else 1.0
+                    shares_float = info.get("floatShares") or info.get("sharesOutstanding") or 50_000_000
+
+                    target_profit = round(price + 0.50, 2)
+                    stop_loss = round(price - 0.25, 2)
+
+                    if not any(g["symbol"] == ticker for g in gappers):
+                        gappers.append({
+                            "symbol": ticker,
+                            "name": info.get("shortName", ticker),
+                            "price": price,
+                            "prev_close": prev_close,
+                            "pct_change": round(pct_change, 2),
+                            "volume": volume,
+                            "rvol": rvol,
+                            "float_shares": shares_float,
+                            "target_profit": target_profit,
+                            "stop_loss": stop_loss,
+                            "rr_ratio": "2.0:1"
+                        })
+                except Exception:
+                    continue
+        except Exception as e:
+            logging.error(f"Watchlist fallback error: {e}")
 
     gappers.sort(key=lambda x: x["pct_change"], reverse=True)
     return gappers[:top_n]
