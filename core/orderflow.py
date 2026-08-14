@@ -77,3 +77,53 @@ def detect_delta_absorption(df: pd.DataFrame) -> Tuple[bool, bool, Dict[str, flo
     }
 
     return is_bullish_absorption, is_bearish_absorption, metrics
+
+
+class HawkesCascadeDetector:
+    """
+    Hawkes Self-Exciting Point Process Order-Flow Cascade Detector.
+    Models self-exciting trade arrival intensity lambda(t):
+      lambda(t) = mu + sum_{t_i < t} alpha * exp(-beta * (t - t_i))
+    Detects institutional liquidation cascades & stop sweeps in real-time.
+    """
+
+    def __init__(self, mu: float = 0.1, alpha: float = 0.5, beta: float = 1.0):
+        self.mu = mu        # Baseline intensity
+        self.alpha = alpha  # Excitation impact per order event
+        self.beta = beta    # Exponential decay rate
+
+    def compute_cascade_intensity(self, df_ticks_or_bars: pd.DataFrame) -> Tuple[float, bool, Dict[str, float]]:
+        """
+        Calculates Hawkes Intensity lambda(t) across recent bar deltas / volumes.
+        Returns: (hawkes_intensity, is_cascade_active, metrics_dict)
+        """
+        if len(df_ticks_or_bars) < 5:
+            return self.mu, False, {"intensity": self.mu, "threshold": 2.5}
+
+        volumes = df_ticks_or_bars['v'].values if 'v' in df_ticks_or_bars.columns else df_ticks_or_bars['volume'].values
+        vol_mean = np.mean(volumes) + 1e-6
+        normalized_events = volumes / vol_mean
+
+        # Compute Hawkes Exponentially Decayed Self-Exciting Intensity Sum
+        n = len(normalized_events)
+        intensity = self.mu
+        for i in range(n):
+            time_diff = n - 1 - i
+            excitation = self.alpha * normalized_events[i] * np.exp(-self.beta * time_diff)
+            intensity += excitation
+
+        # Cascade Threshold: Intensity >= 2.5x baseline
+        threshold = 2.5 * self.mu
+        is_cascade_active = intensity >= threshold
+
+        metrics = {
+            "hawkes_intensity": round(float(intensity), 3),
+            "baseline_mu": round(self.mu, 3),
+            "cascade_threshold": round(threshold, 3),
+            "is_cascade_active": is_cascade_active
+        }
+
+        return float(intensity), is_cascade_active, metrics
+
+
+hawkes_detector = HawkesCascadeDetector()

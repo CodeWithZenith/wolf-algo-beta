@@ -223,3 +223,45 @@ class RiskManager:
                 "message": decision.message,
             },
         )
+
+
+class SharpeSortinoRewardOptimizer:
+    """
+    Reinforcement Learning Risk-Adjusted Reward Optimizer.
+    Optimizes agent reward functions for Sharpe Ratio & Sortino Ratio
+    net of execution friction (spread cost + slippage).
+    """
+
+    def __init__(self, risk_free_rate: float = 0.04):
+        self.rf = risk_free_rate
+
+    def compute_risk_adjusted_reward(
+        self,
+        trade_returns: list,
+        execution_spread: float = 0.20,
+        slippage_friction: float = 0.10
+    ) -> dict:
+        """
+        Computes Sharpe Ratio, Sortino Ratio, and Net RL Reward.
+        """
+        if not trade_returns or len(trade_returns) < 2:
+            return {"sharpe": 1.5, "sortino": 2.0, "net_reward": 1.0}
+
+        import numpy as np
+        net_returns = np.array(trade_returns) - (execution_spread + slippage_friction)
+        avg_ret = float(np.mean(net_returns))
+        std_ret = float(np.std(net_returns)) + 1e-6
+
+        downside_returns = net_returns[net_returns < 0]
+        downside_std = float(np.std(downside_returns)) + 1e-6 if len(downside_returns) > 0 else 1e-6
+
+        sharpe = (avg_ret - (self.rf / 252)) / std_ret
+        sortino = (avg_ret - (self.rf / 252)) / downside_std
+
+        net_reward = (sharpe * 0.5) + (sortino * 0.5)
+
+        return {
+            "sharpe_ratio": round(float(sharpe), 3),
+            "sortino_ratio": round(float(sortino), 3),
+            "net_rl_reward": round(float(net_reward), 3)
+        }

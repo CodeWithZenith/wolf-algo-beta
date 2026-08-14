@@ -35,6 +35,25 @@ load_dotenv()
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 DISCORD_USER = os.getenv("DISCORD_USER", "Trapquincyjones")
 
+MIN_PRICE = 2.00
+MAX_PRICE = 20.00
+MIN_DAY_GAIN_PCT = 10.0
+MIN_RVOL = 2.0
+MAX_FLOAT_SHARES = 50_000_000  # 50 Million
+
+
+def calculate_barra_residual_alpha(stock_gain_pct: float, spy_gain_pct: float = 0.5, beta: float = 1.2) -> float:
+    """
+    Barra-Style Residual Momentum & Idiosyncratic Alpha Calculator.
+    Orthogonalizes stock percentage return against market index return (SPY)
+    to extract pure idiosyncratic alpha (alpha_i) net of systemic market beta.
+    
+    Formula:
+      Alpha_i = R_i - (Beta_i * R_m)
+    """
+    idiosyncratic_alpha = stock_gain_pct - (beta * spy_gain_pct)
+    return round(float(idiosyncratic_alpha), 2)
+
 # Active Scanner Criteria Settings
 MIN_PRICE = 2.00
 MAX_PRICE = 20.00
