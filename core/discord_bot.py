@@ -80,12 +80,9 @@ def handle_discord_command(command_str: str) -> str:
                 f"• **Open Positions:** `{pos_count}`\n"
                 f"• **Bot Auto-Trader Status:** `{'PAUSED ⏸️' if BOT_PAUSED else 'RUNNING 24/7 🚀'}`"
             )
-            send_discord_reply(msg)
             return msg
         except Exception as e:
-            err = f"❌ Error fetching status: {e}"
-            send_discord_reply(err)
-            return err
+            return f"❌ Error fetching status: {e}"
 
     # 2. INSTANT BUY / LONG COMMAND
     elif cmd in ["!buy", "buy", "!long", "long"]:
@@ -114,13 +111,9 @@ def handle_discord_command(command_str: str) -> str:
                 take_profit=tp_price,
                 take_profit_type="absolute"
             )
-            msg = f"🚀 **DISCORD COMMAND EXECUTED: PLACED BUY LONG ORDER (0.05 Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+$1.00 Gold distance | Max Risk: `-$5.00`)\n• Order ID: `{order_id}`"
-            send_discord_reply(msg)
-            return msg
+            return f"🚀 **DISCORD COMMAND EXECUTED: PLACED BUY LONG ORDER (0.05 Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+$1.00 Gold distance | Max Risk: `-$5.00`)\n• Order ID: `{order_id}`"
         except Exception as e:
-            err = f"❌ Failed to execute BUY command: {e}"
-            send_discord_reply(err)
-            return err
+            return f"❌ Failed to execute BUY command: {e}"
 
     # 3. INSTANT SELL / SHORT COMMAND
     elif cmd in ["!sell", "sell", "!short", "short"]:
@@ -149,13 +142,9 @@ def handle_discord_command(command_str: str) -> str:
                 take_profit=tp_price,
                 take_profit_type="absolute"
             )
-            msg = f"📉 **DISCORD COMMAND EXECUTED: PLACED SELL SHORT ORDER (0.05 Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+$1.00 Gold distance | Max Risk: `-$5.00`)\n• Order ID: `{order_id}`"
-            send_discord_reply(msg)
-            return msg
+            return f"📉 **DISCORD COMMAND EXECUTED: PLACED SELL SHORT ORDER (0.05 Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+$1.00 Gold distance | Max Risk: `-$5.00`)\n• Order ID: `{order_id}`"
         except Exception as e:
-            err = f"❌ Failed to execute SELL command: {e}"
-            send_discord_reply(err)
-            return err
+            return f"❌ Failed to execute SELL command: {e}"
 
     # 4. CLOSE ALL / EXIT COMMAND
     elif cmd in ["!closeall", "closeall", "!exit", "exit", "!close"]:
@@ -169,34 +158,24 @@ def handle_discord_command(command_str: str) -> str:
                     if pid:
                         tl.close_position(position_id=pid)
                         closed_count += 1
-            msg = f"🚨 **DISCORD COMMAND EXECUTED: CLOSED ALL OPEN POSITIONS**\n• Positions Closed: `{closed_count}`"
-            send_discord_reply(msg)
-            return msg
+            return f"🚨 **DISCORD COMMAND EXECUTED: CLOSED ALL OPEN POSITIONS**\n• Positions Closed: `{closed_count}`"
         except Exception as e:
-            err = f"❌ Failed to close positions: {e}"
-            send_discord_reply(err)
-            return err
+            return f"❌ Failed to close positions: {e}"
 
     # 5. STOP / PAUSE COMMAND
     elif cmd in ["!stop", "stop", "!pause", "pause"]:
         BOT_PAUSED = True
-        msg = "⏸️ **DISCORD COMMAND EXECUTED: AUTOMATIC BOT TRADING PAUSED.**\nType `!start` or `resume` to resume 24/7 trading."
-        send_discord_reply(msg)
-        return msg
+        return "⏸️ **DISCORD COMMAND EXECUTED: AUTOMATIC BOT TRADING PAUSED.**\nType `!start` or `resume` to resume 24/7 trading."
 
     # 6. START / RESUME COMMAND
     elif cmd in ["!start", "start", "!resume", "resume"]:
         BOT_PAUSED = False
-        msg = "🚀 **DISCORD COMMAND EXECUTED: AUTOMATIC BOT TRADING RESUMED 24/7!**"
-        send_discord_reply(msg)
-        return msg
+        return "🚀 **DISCORD COMMAND EXECUTED: AUTOMATIC BOT TRADING RESUMED 24/7!**"
 
     # 7. HOLD POSITION COMMAND
     elif cmd in ["!hold", "hold"]:
         HOLD_POSITION_MODE = True
-        msg = "🔒 **DISCORD COMMAND EXECUTED: HOLD POSITION MODE ENABLED.** Holding active trade."
-        send_discord_reply(msg)
-        return msg
+        return "🔒 **DISCORD COMMAND EXECUTED: HOLD POSITION MODE ENABLED.** Holding active trade."
 
     # 8. EQUITY MOMENTUM SCANNER COMMAND
     elif any(k in cmd for k in ["scan", "equity", "gappers", "top"]):
@@ -205,23 +184,15 @@ def handle_discord_command(command_str: str) -> str:
             num_match = re.search(r'\b(100|[1-9]\d?)\b', command_str)
             target_n = int(num_match.group(1)) if num_match else 20
 
-            send_discord_reply(f"🔍 **Running Equity Momentum Gapper Scanner (Top {target_n})...**")
             from core.equity_scanner import fetch_top_equity_gappers, format_gappers_as_table_chunks
             gappers = fetch_top_equity_gappers(top_n=target_n)
             if not gappers:
-                msg = "📊 **Equity Scanner Result:** No stocks currently meet criteria."
-                send_discord_reply(msg)
-                return msg
+                return "📊 **Equity Scanner Result:** No stocks currently meet criteria."
 
             table_chunks = format_gappers_as_table_chunks(gappers, max_items=target_n)
-            for chunk in table_chunks[1:]:
-                send_discord_reply(chunk)
-            
             return table_chunks[0]
         except Exception as e:
-            err = f"❌ Failed to run equity scanner: {e}"
-            send_discord_reply(err)
-            return err
+            return f"❌ Failed to run equity scanner: {e}"
 
     return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, top 50"
 
