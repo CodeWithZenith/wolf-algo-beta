@@ -242,10 +242,20 @@ if __name__ == "__main__":
                 # Ignore self messages
                 if message.author.id == self.user.id:
                     return
-                content = message.content.strip().lower()
-                if content.startswith("!") or content in ["pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold", "pause", "resume"]:
-                    print(f"📩 Received Discord channel command: '{content}' from {message.author}")
-                    handle_discord_command(content)
+                content = message.content.strip()
+                if not content:
+                    return
+
+                cmd_lower = content.lower()
+                keywords = ["pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold", "pause", "resume", "scan", "equity", "gappers"]
+                if content.startswith("!") or cmd_lower in keywords:
+                    print(f"📩 Processing Discord channel command: '{content}' from {message.author}")
+                    res = await asyncio.to_thread(handle_discord_command, content)
+                    if res and isinstance(res, str):
+                        try:
+                            await message.channel.send(res)
+                        except Exception as e:
+                            print(f"Direct channel reply error: {e}")
 
         intents = discord.Intents.default()
         intents.message_content = True
