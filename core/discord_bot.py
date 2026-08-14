@@ -98,6 +98,18 @@ def handle_discord_command(command_str: str) -> str:
     elif cmd in ["!buy", "buy", "!long", "long"]:
         try:
             tl = initialize_client()
+            acc = tl.get_account_state()
+            bal = float(acc.get("balance", 1000.0)) if isinstance(acc, dict) else 1000.0
+
+            if bal >= 50000.0:
+                qty = 0.10
+                sl_dist = 5.00
+                max_risk = 50.00
+            else:
+                qty = 0.05
+                sl_dist = 1.00
+                max_risk = 5.00
+
             from core.execution import resolve_instrument_id
             inst_id = resolve_instrument_id(tl, SYMBOL)
             history = tl.get_price_history(inst_id, resolution="5m", lookback_period="1D")
@@ -108,12 +120,12 @@ def handle_discord_command(command_str: str) -> str:
             else:
                 curr_price = 4350.0
 
-            sl_price = round(curr_price - 1.00, 2)
+            sl_price = round(curr_price - sl_dist, 2)
             tp_price = round(curr_price + 30.00, 2)
 
             order_id = tl.create_order(
                 instrument_id=inst_id,
-                quantity=0.05,
+                quantity=qty,
                 side="buy",
                 type_="market",
                 stop_loss=sl_price,
@@ -121,7 +133,7 @@ def handle_discord_command(command_str: str) -> str:
                 take_profit=tp_price,
                 take_profit_type="absolute"
             )
-            return f"🚀 **DISCORD COMMAND EXECUTED: PLACED BUY LONG ORDER (0.05 Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+$1.00 Gold distance | Max Risk: `-$5.00`)\n• Order ID: `{order_id}`"
+            return f"🚀 **DISCORD COMMAND EXECUTED: PLACED BUY LONG ORDER ({qty} Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+${sl_dist:.2f} Gold distance | Max Risk: `-${max_risk:.2f}`)\n• Order ID: `{order_id}`"
         except Exception as e:
             return f"❌ Failed to execute BUY command: {e}"
 
@@ -129,6 +141,18 @@ def handle_discord_command(command_str: str) -> str:
     elif cmd in ["!sell", "sell", "!short", "short"]:
         try:
             tl = initialize_client()
+            acc = tl.get_account_state()
+            bal = float(acc.get("balance", 1000.0)) if isinstance(acc, dict) else 1000.0
+
+            if bal >= 50000.0:
+                qty = 0.10
+                sl_dist = 5.00
+                max_risk = 50.00
+            else:
+                qty = 0.05
+                sl_dist = 1.00
+                max_risk = 5.00
+
             from core.execution import resolve_instrument_id
             inst_id = resolve_instrument_id(tl, SYMBOL)
             history = tl.get_price_history(inst_id, resolution="5m", lookback_period="1D")
@@ -139,12 +163,12 @@ def handle_discord_command(command_str: str) -> str:
             else:
                 curr_price = 4350.0
 
-            sl_price = round(curr_price + 1.00, 2)
+            sl_price = round(curr_price + sl_dist, 2)
             tp_price = round(curr_price - 30.00, 2)
 
             order_id = tl.create_order(
                 instrument_id=inst_id,
-                quantity=0.05,
+                quantity=qty,
                 side="sell",
                 type_="market",
                 stop_loss=sl_price,
@@ -152,7 +176,7 @@ def handle_discord_command(command_str: str) -> str:
                 take_profit=tp_price,
                 take_profit_type="absolute"
             )
-            return f"📉 **DISCORD COMMAND EXECUTED: PLACED SELL SHORT ORDER (0.05 Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+$1.00 Gold distance | Max Risk: `-$5.00`)\n• Order ID: `{order_id}`"
+            return f"📉 **DISCORD COMMAND EXECUTED: PLACED SELL SHORT ORDER ({qty} Lots)**\n• Entry Price: `${curr_price:.2f}`\n• Instant Stop Loss: `${sl_price:.2f}` (+${sl_dist:.2f} Gold distance | Max Risk: `-${max_risk:.2f}`)\n• Order ID: `{order_id}`"
         except Exception as e:
             return f"❌ Failed to execute SELL command: {e}"
 

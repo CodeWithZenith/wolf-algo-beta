@@ -474,16 +474,23 @@ def run_strategy_cycle():
         cash_balance = 4955.18
         today_net = 0.0
 
-    contract_size = 100.0
-
-    # ── Strict User Execution Directives ──
-    # 1. Lot Size: Locked to 0.05 Lots (5 oz of Gold)
-    # 2. Stop Loss Distance: $1.00 Gold Price Points = EXACTLY $5.00 Max Risk upon entry!
-    # 3. Trailing SL: Trails price at $1.00 distance ($5.00 buffer) as price advances!
-    calculated_qty = 0.05
-    actual_max_risk = 5.00
-    price_stop_distance = 1.00
-    effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "25.0"))
+    # ── Dynamic Account Equity Scaling Position Sizing Engine ──
+    # For $100k Account (Balance >= $50,000):
+    #   - Lot Size: 0.10 Lots (10 oz of Gold)
+    #   - Max Risk: $50.00 | Stop Loss Distance: $5.00 Gold Price Points
+    # For $1k Account (Balance < $50,000):
+    #   - Lot Size: 0.05 Lots (5 oz of Gold)
+    #   - Max Risk: $5.00  | Stop Loss Distance: $1.00 Gold Price Points
+    if cash_balance >= 50000.0:
+        calculated_qty = 0.10
+        actual_max_risk = 50.00
+        price_stop_distance = 5.00
+        effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "500.0"))
+    else:
+        calculated_qty = 0.05
+        actual_max_risk = 5.00
+        price_stop_distance = 1.00
+        effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "25.0"))
 
     # Patient Confluence Filter: Strict Alignment with 1D Trend + 5m HMA + Wolf Osc Wave1/Wave2 + MFI Money Flow
     is_intraday_bearish = intraday_close < intraday_hma if not np.isnan(intraday_hma) else False
