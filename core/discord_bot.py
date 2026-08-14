@@ -64,23 +64,33 @@ def handle_discord_command(command_str: str) -> str:
     from core.execution import initialize_client, SYMBOL
 
     # 1. STATUS / PNL COMMAND
-    if cmd in ["!status", "status", "!pnl", "pnl", "!balance"]:
+    if cmd in ["!status", "status", "!pnl", "pnl", "!balance", "accounts"]:
         try:
             tl = initialize_client()
-            acc = tl.get_account_state()
+            acc_df = tl.get_all_accounts()
+            lines = [f"📊 **Wolf Algo Live Profile Status** (`{DISCORD_USER}`)"]
+            lines.append(f"• **Bot Auto-Trader Status:** `{'PAUSED ⏸️' if BOT_PAUSED else 'RUNNING 24/7 🚀'}`\n")
+
+            if hasattr(acc_df, "iterrows"):
+                for idx, row in acc_df.iterrows():
+                    acc_id = row.get("id")
+                    acc_name = row.get("name", f"Account #{acc_id}")
+                    acc_bal = row.get("accountBalance", 0.0)
+                    acc_curr = row.get("currency", "USD")
+                    acc_status = row.get("status", "ACTIVE")
+                    lines.append(f"🔹 **Account ID `{acc_id}`** ({acc_name}):")
+                    lines.append(f"   • Balance: `${acc_bal:,.2f} {acc_curr}` | Status: `{acc_status}`")
+            else:
+                acc = tl.get_account_state()
+                bal = acc.get("balance", 0.0) if isinstance(acc, dict) else 0.0
+                pnl = acc.get("todayNet", 0.0) if isinstance(acc, dict) else 0.0
+                lines.append(f"• **Balance:** `${bal:,.2f}` | **Today PnL:** `${pnl:,.2f}`")
+
             pos = tl.get_all_positions()
             pos_count = len(pos) if hasattr(pos, "__len__") else 0
-            bal = acc.get("balance", 0.0) if isinstance(acc, dict) else 0.0
-            pnl = acc.get("todayNet", 0.0) if isinstance(acc, dict) else 0.0
+            lines.append(f"\n• **Active Open Positions:** `{pos_count}`")
 
-            msg = (
-                f"📊 **Wolf Algo Live Account Status**\n"
-                f"• **Balance:** `${bal:,.2f}`\n"
-                f"• **Today PnL:** `${pnl:,.2f}`\n"
-                f"• **Open Positions:** `{pos_count}`\n"
-                f"• **Bot Auto-Trader Status:** `{'PAUSED ⏸️' if BOT_PAUSED else 'RUNNING 24/7 🚀'}`"
-            )
-            return msg
+            return "\n".join(lines)
         except Exception as e:
             return f"❌ Error fetching status: {e}"
 
