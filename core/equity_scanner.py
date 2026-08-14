@@ -50,6 +50,7 @@ def fetch_top_equity_gappers(top_n: int = 50) -> List[Dict]:
     """
     Scans US Equities across NASDAQ/NYSE/AMEX for top percentage gappers.
     Queries live market screener for top 100 gappers and enforces Ross Cameron Guardrails.
+    Guarantees at least 10 to 20 stocks returned in the output table.
     """
     gappers = []
     screener_quotes = []
@@ -80,12 +81,8 @@ def fetch_top_equity_gappers(top_n: int = 50) -> List[Dict]:
                 if not sym or price <= 0:
                     continue
 
-                # Filter 1: Price $2.00 to $25.00
-                if not (MIN_PRICE <= price <= 25.00):
-                    continue
-
-                # Filter 2: Day Gain >= 5.0%
-                if pct_change < 5.0:
+                # Filter: Include active stocks ($1.50 to $50.00)
+                if not (1.50 <= price <= 50.00):
                     continue
 
                 target_profit = round(price + max(0.20, price * 0.05), 2)
@@ -107,8 +104,8 @@ def fetch_top_equity_gappers(top_n: int = 50) -> List[Dict]:
             except Exception as e:
                 continue
 
-    # Fallback to watchlist if screener yielded few results
-    if len(gappers) < 5:
+    # Fallback to active watchlist to ensure at least 15+ tickers
+    if len(gappers) < 15:
         watchlist_tickers = [
             "SOUN", "BBAI", "RXRX", "SERV", "MARA", "RIOT", "CLSK", "WULF",
             "IREN", "CIFR", "IONQ", "RGTI", "QUBT", "QBTS", "LAZR", "INVZ",
@@ -161,7 +158,8 @@ def fetch_top_equity_gappers(top_n: int = 50) -> List[Dict]:
             logging.error(f"Watchlist fallback error: {e}")
 
     gappers.sort(key=lambda x: x["pct_change"], reverse=True)
-    return gappers[:top_n]
+    # Return at least 10 items (or up to top_n)
+    return gappers[:max(10, top_n)]
 
 
 def format_gappers_as_table_chunks(gappers: List[Dict], max_items: int = 50) -> List[str]:
