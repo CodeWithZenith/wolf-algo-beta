@@ -199,18 +199,21 @@ def handle_discord_command(command_str: str) -> str:
         return msg
 
     # 8. EQUITY MOMENTUM SCANNER COMMAND
-    elif cmd in ["!scan", "scan", "!equity", "equity", "!gappers", "gappers"]:
+    elif any(k in cmd for k in ["scan", "equity", "gappers", "top"]):
         try:
-            send_discord_reply("🔍 **Running Equity Momentum Gapper Scanner (Ross Cameron Strategy)...**")
+            import re
+            num_match = re.search(r'\b(100|[1-9]\d?)\b', command_str)
+            target_n = int(num_match.group(1)) if num_match else 20
+
+            send_discord_reply(f"🔍 **Running Equity Momentum Gapper Scanner (Top {target_n})...**")
             from core.equity_scanner import fetch_top_equity_gappers, format_gappers_as_table_chunks
-            gappers = fetch_top_equity_gappers(top_n=50)
+            gappers = fetch_top_equity_gappers(top_n=target_n)
             if not gappers:
-                msg = "📊 **Equity Scanner Result:** No stocks currently meet all 5 Guardrail criteria ($2-$20, >10% gain, RVOL >= 2.0x, float <= 50M)."
+                msg = "📊 **Equity Scanner Result:** No stocks currently meet criteria."
                 send_discord_reply(msg)
                 return msg
 
-            table_chunks = format_gappers_as_table_chunks(gappers, max_items=50)
-            # Send first chunk as direct return, rest via webhook if multi-chunk
+            table_chunks = format_gappers_as_table_chunks(gappers, max_items=target_n)
             for chunk in table_chunks[1:]:
                 send_discord_reply(chunk)
             
@@ -220,7 +223,7 @@ def handle_discord_command(command_str: str) -> str:
             send_discord_reply(err)
             return err
 
-    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold"
+    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, top 50"
 
 
 if __name__ == "__main__":
@@ -245,8 +248,8 @@ if __name__ == "__main__":
                     return
 
                 cmd_lower = content.lower()
-                keywords = ["pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold", "pause", "resume", "scan", "equity", "gappers"]
-                if content.startswith("!") or cmd_lower in keywords:
+                keywords = ["pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold", "pause", "resume", "scan", "equity", "gappers", "top"]
+                if content.startswith("!") or any(k in cmd_lower for k in keywords):
                     print(f"📩 Processing Discord channel command: '{content}' from {message.author}")
                     res = await asyncio.to_thread(handle_discord_command, content)
                     if res and isinstance(res, str):
