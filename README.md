@@ -18,7 +18,7 @@ An elite, modular, Python-based quantitative trading agent featuring **TradeLock
   - **CFI TRIN / Arms Index:** Real-time advance/decline breadth market volume ratio.
 - 🛡️ **Immutable Constitutional Guardrails (`risk/manager.py`):**
   - Mandatory Structural Stop-Loss (cannot be widened).
-  - Hard Daily Loss Circuit Breaker (-$500 on $100k / -$25 on $1k).
+  - Hard Daily Loss Circuit Breaker (-$1,000 on $100k / -$250 on $25k / -$150 on $5k / -$25 on $1k).
   - Adaptive Real-Time Spread Spike Protection (blocks trades if spread expands >2.5x median).
   - Ross Cameron Equities Guardrail ($2–$25 price, RVOL $\ge 2.0$x, float $\le 50$M, $>10\%$ gain).
 - 🕒 **Automated Daily Structure & Execution Schedule:**

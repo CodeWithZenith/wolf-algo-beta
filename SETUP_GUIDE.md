@@ -51,7 +51,7 @@ TL_ACCOUNT_ID=2408565
 # ---------------------------------------------------------------------------
 SYMBOL=XAUUSD
 POSITION_QTY=0.10
-HARD_DAILY_LOSS_LIMIT=500.0
+HARD_DAILY_LOSS_LIMIT=1000.0
 
 # ---------------------------------------------------------------------------
 # Notification System Setup (Discord vs Telegram)
