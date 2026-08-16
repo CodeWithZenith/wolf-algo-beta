@@ -264,6 +264,38 @@ def handle_discord_command(command_str: str) -> str:
         except Exception as e:
             return f"❌ Failed to run index breadth scanner: {e}"
 
+    # 11. ECONOMIC NEWS & CALENDAR COMMAND
+    elif any(k in cmd for k in ["news", "calendar", "events", "nfp", "cpi", "fomc"]):
+        try:
+            from core.news_calendar import news_calendar
+            return news_calendar.format_news_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run economic news scanner: {e}"
+
+    # 12. SMC INSTITUTIONAL STRUCTURE SCANNER COMMAND
+    elif any(k in cmd for k in ["smc", "orderblock", "sweeps", "liquidity", "fvg", "ifvg"]):
+        try:
+            from core.smc_scanner import smc_scanner
+            return smc_scanner.format_smc_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run SMC scanner: {e}"
+
+    # 13. PERFORMANCE ANALYTICS REPORT COMMAND
+    elif any(k in cmd for k in ["report", "analytics", "stats", "performance"]):
+        try:
+            from core.analytics import analytics_engine
+            return analytics_engine.format_analytics_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run analytics report: {e}"
+
+    # 14. PROP EVALUATION DASHBOARD COMMAND
+    elif any(k in cmd for k in ["prop", "evaluation", "challenge", "ftmo", "funded"]):
+        try:
+            from core.prop_evaluator import prop_evaluator
+            return prop_evaluator.format_prop_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run prop evaluation report: {e}"
+
     return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart, !quant"
 
 
