@@ -88,14 +88,31 @@ def is_in_news_blackout_window() -> bool:
 
 
 def is_in_core_session() -> bool:
-    """Trade 24/5 continuously, excluding only the 5:00 PM - 6:00 PM EST CME/Forex daily settlement window."""
+    """
+    Enforces user's exact preferred trading session windows (in EST / EDT):
+      - Window 1 (Main Session):  7:00 PM EST – 12:00 PM (Noon) EST  (Asian, London & NY Morning)
+      - Window 2 (Power Hour):    2:30 PM EST – 4:00 PM EST           (Pre-Close Afternoon)
+      - Off-Hours / Rest Window: 12:00 PM – 2:30 PM EST & 4:00 PM – 7:00 PM EST (0 Trades / Closed)
+    """
     if not SESSION_FILTER_ENABLED:
         return True
+
     now_utc = datetime.utcnow()
-    # 5:00 PM to 6:00 PM EST is 22:00 to 23:00 UTC (Exchange Rollover Window)
-    if now_utc.hour == 22:
-        return False
-    return True
+    # Calculate EST hour (UTC - 4 during Daylight Savings / EDT)
+    est_hour = (now_utc.hour - 4) % 24
+    est_minute = now_utc.minute
+    est_decimal_time = est_hour + (est_minute / 60.0)
+
+    # Window 1: 7:00 PM EST (19.0) to 12:00 PM Noon EST (12.0)
+    is_window_1 = (est_decimal_time >= 19.0) or (est_decimal_time < 12.0)
+
+    # Window 2: 2:30 PM EST (14.5) to 4:00 PM EST (16.0)
+    is_window_2 = 14.5 <= est_decimal_time <= 16.0
+
+    if is_window_1 or is_window_2:
+        return True
+
+    return False
 
 
 PAPER_TRADING_MODE = os.getenv("PAPER_TRADING_MODE", "true").lower() == "true"
