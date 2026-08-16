@@ -7,7 +7,7 @@ max drawdown, and daily loss caps. NO EXCEPTIONS.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 from config.settings import RiskConfig
 from risk.models import (
     AccountRiskState,
@@ -18,6 +18,53 @@ from risk.models import (
     Direction,
 )
 from utils.logger import LogTag, log_event
+
+
+class ConstitutionalGuardrails:
+    """
+    Immutable Constitutional Rules Engine.
+    These rules form the core DNA of Wolf Algo and CANNOT be overwritten,
+    weakened, or bypassed by machine learning adaptive learning or dynamic tuning.
+    """
+
+    @staticmethod
+    def validate_immutable_risk(
+        entry_price: float,
+        stop_loss: float,
+        account_balance: float,
+        direction: str
+    ) -> Tuple[bool, str]:
+        """Validates Rule 1 (Mandatory SL) and Rule 4 (Max Single-Trade Risk Cap)."""
+        if stop_loss <= 0.0:
+            return False, "IMMUTABLE GUARDRAIL VIOLATION: Every order MUST carry a valid structural Stop Loss > 0."
+
+        if direction.upper() in ["BUY", "LONG"] and stop_loss >= entry_price:
+            return False, f"IMMUTABLE GUARDRAIL VIOLATION: Long SL (${stop_loss:.2f}) must be BELOW entry (${entry_price:.2f})."
+
+        if direction.upper() in ["SELL", "SHORT"] and stop_loss <= entry_price:
+            return False, f"IMMUTABLE GUARDRAIL VIOLATION: Short SL (${stop_loss:.2f}) must be ABOVE entry (${entry_price:.2f})."
+
+        max_risk_cap = 50.00 if account_balance >= 50000.0 else 5.00
+        actual_risk = abs(entry_price - stop_loss) * (0.10 if account_balance >= 50000.0 else 0.05) * 100.0
+
+        if actual_risk > (max_risk_cap * 1.05):
+            return False, f"IMMUTABLE GUARDRAIL VIOLATION: Per-trade risk (${actual_risk:.2f}) exceeds max risk cap (${max_risk_cap:.2f})."
+
+        return True, "IMMUTABLE CONSTITUTIONAL GUARDRAILS PASSED 🛡️"
+
+    @staticmethod
+    def validate_equities_selection(price: float, rvol: float, float_shares: float, gain_pct: float) -> Tuple[bool, str]:
+        """Validates Rule 3 (Ross Cameron Ross-5 Equities Selection Rules)."""
+        if price < 2.00 or price > 25.00:
+            return False, f"Ross Cameron Guardrail 1 Failed: Price ${price:.2f} outside $2-$25 range."
+        if rvol < 2.0:
+            return False, f"Ross Cameron Guardrail 3 Failed: RVOL {rvol:.2f}x below 2.0x minimum."
+        if float_shares > 50_000_000:
+            return False, f"Ross Cameron Guardrail 4 Failed: Float {float_shares/1e6:.1f}M exceeds 50M max."
+        if gain_pct < 10.0:
+            return False, f"Ross Cameron Guardrail 2 Failed: Gain {gain_pct:.1f}% below +10.0% minimum."
+
+        return True, "EQUITIES ROSS-5 GUARDRAILS PASSED 🎯"
 
 
 class RiskManager:

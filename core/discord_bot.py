@@ -228,7 +228,15 @@ def handle_discord_command(command_str: str) -> str:
         except Exception as e:
             return f"❌ Failed to run equity scanner: {e}"
 
-    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, top 50"
+    # 9. MAJOR INDEX BREADTH & MACRO REGIME SCANNER COMMAND
+    elif any(k in cmd for k in ["breadth", "index", "indices", "nas100", "sp500", "dow30"]):
+        try:
+            from core.index_scanner import format_macro_regime_for_discord
+            return format_macro_regime_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run index breadth scanner: {e}"
+
+    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth"
 
 
 if __name__ == "__main__":
@@ -253,7 +261,7 @@ if __name__ == "__main__":
                     return
 
                 cmd_lower = content.lower()
-                keywords = ["pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold", "pause", "resume", "scan", "equity", "gappers", "top"]
+                keywords = ["pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold", "pause", "resume", "scan", "equity", "gappers", "top", "breadth", "index", "indices", "nas100", "sp500", "dow30"]
                 if content.startswith("!") or any(k in cmd_lower for k in keywords):
                     print(f"📩 Processing Discord channel command: '{content}' from {message.author}")
                     res = await asyncio.to_thread(handle_discord_command, content)
