@@ -260,7 +260,23 @@ def handle_discord_command(command_str: str) -> str:
         except Exception as e:
             return f"❌ Failed to run news calendar: {e}"
 
-    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news"
+    # 13. PROP FIRM CHALLENGE & EVALUATION SAFETY COMMAND
+    elif any(k in cmd for k in ["prop", "evaluation", "challenge", "ftmo", "funded"]):
+        try:
+            from core.prop_evaluator import prop_evaluator
+            return prop_evaluator.format_prop_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run prop firm evaluator: {e}"
+
+    # 14. AUTOMATED VISUAL SIGNAL CHART GENERATOR COMMAND
+    elif any(k in cmd for k in ["chart", "visual", "candles"]):
+        try:
+            from core.chart_generator import generate_ascii_chart_for_discord
+            return generate_ascii_chart_for_discord("GC=F", "Gold (XAUUSD)")
+        except Exception as e:
+            return f"❌ Failed to generate chart: {e}"
+
+    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart"
 
 
 if __name__ == "__main__":
@@ -290,7 +306,8 @@ if __name__ == "__main__":
                     "pause", "resume", "scan", "equity", "gappers", "top", "breadth", "index",
                     "indices", "nas100", "sp500", "dow30", "report", "analytics", "stats",
                     "performance", "smc", "orderblock", "sweeps", "liquidity", "fvg", "ifvg",
-                    "news", "calendar", "events", "nfp", "cpi", "fomc"
+                    "news", "calendar", "events", "nfp", "cpi", "fomc", "prop", "evaluation",
+                    "challenge", "ftmo", "funded", "chart", "visual", "candles"
                 ]
                 if content.startswith("!") or any(k in cmd_lower for k in keywords):
                     print(f"📩 Processing Discord channel command: '{content}' from {message.author}")
