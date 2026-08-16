@@ -177,14 +177,19 @@ class BacktestEngine:
                     if current_low <= pos["stop_loss"]:
                         self._close_position(pos["stop_loss"], bar_time)
                         closed = True
-                    # 1b. Dynamic Breakeven Lock @ +0.75 RR for 80-95%+ Win Rate Target!
+                    # 1b. Dynamic Breakeven Lock @ +0.35 RR for 2-3 Min Scalps (80-99% Win Rate Target!)
                     elif not pos.get("be_locked", False):
                         entry_p = pos["entry_price"]
                         sl_p = pos["stop_loss"]
                         risk_d = entry_p - sl_p
-                        if current_high >= (entry_p + 0.75 * risk_d):
+                        be_threshold = 0.35 if self.exit_target == "tp1" else 0.75
+                        if current_high >= (entry_p + be_threshold * risk_d):
                             pos["stop_loss"] = entry_p  # Lock SL at Breakeven!
                             pos["be_locked"] = True
+                    # 1c. 3-Bar Max Duration Cap for 2-3 Min Scalps
+                    elif pos.get("be_locked", False) and (i - pos.get("entry_idx", i)) >= 3:
+                        self._close_position(current_close, bar_time)
+                        closed = True
                     # 2. TP check based on exit_target
                     elif self.exit_target != "trailing":
                         tp_price = self._get_exit_tp(pos, current_high, Direction.LONG)
@@ -246,18 +251,20 @@ class BacktestEngine:
                                 if current_close >= trend_val or trend_val >= prev_trend_val or current_close > macro_ema:
                                     continue  # Skip any short entries above HMA Cloud or 200 EMA!
 
-                    # ── SMC Order Block & FVG Institutional Zone Gate (80-99% Win Rate Target) ──
+                    # ── CFI Pin Bar Rejection Candle Gate for 80-95%+ Scalp Win Rate Target ──
                     try:
-                        from core.smc_scanner import smc_scanner
-                        lookback_df = df.iloc[max(0, i-40):i+1]
-                        ob_res = smc_scanner.scan_smc_structures(lookback_df)
-                        has_bull_ob = ob_res.get("ob_bullish", False) or ob_res.get("ifvg_bullish", False)
-                        has_bear_ob = ob_res.get("ob_bearish", False) or ob_res.get("ifvg_bearish", False)
+                        open_p = float(df["Open"].iloc[i])
+                        close_p = float(df["Close"].iloc[i])
+                        high_p = float(df["High"].iloc[i])
+                        low_p = float(df["Low"].iloc[i])
+                        body_sz = abs(close_p - open_p)
+                        lower_wick = min(open_p, close_p) - low_p
+                        upper_wick = high_p - max(open_p, close_p)
 
-                        # Require price to tap an institutional Order Block or FVG!
-                        if direction == Direction.LONG and not has_bull_ob:
+                        # Require Lower Rejection Wick (Buyers pushing up from low) for Long Scalps!
+                        if direction == Direction.LONG and body_sz > 0 and lower_wick < (body_sz * 0.15):
                             continue
-                        if direction == Direction.SHORT and not has_bear_ob:
+                        if direction == Direction.SHORT and body_sz > 0 and upper_wick < (body_sz * 0.15):
                             continue
                     except Exception:
                         pass
