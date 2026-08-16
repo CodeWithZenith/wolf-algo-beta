@@ -123,8 +123,15 @@ class BacktestEngine:
         recent_low = df["Low"].rolling(20, min_periods=1).min()
         recent_high = df["High"].rolling(20, min_periods=1).max()
 
-        # Trend filter: long-period HMA
-        trend_hma = hull_moving_average(df["Close"], self.trend_filter_period) if self.use_trend_filter else None
+        # ── Pre-compute Trend HMA (Resampled HMA-250 for 1m bars = 5m HMA-50!) ──
+        trend_hma = None
+        if self.use_trend_filter:
+            try:
+                sample_delta = (df.index[1] - df.index[0]).total_seconds() / 60.0 if len(df) > 1 else 15.0
+            except Exception:
+                sample_delta = 15.0
+            t_period = 250 if sample_delta <= 1.5 else (100 if sample_delta <= 2.5 else self.trend_filter_period)
+            trend_hma = hull_moving_average(df["Close"], t_period)
 
         # Oscillator pre-compute
         osc_df = None
@@ -170,6 +177,14 @@ class BacktestEngine:
                     if current_low <= pos["stop_loss"]:
                         self._close_position(pos["stop_loss"], bar_time)
                         closed = True
+                    # 1b. Dynamic Breakeven Lock @ +0.75 RR for 80-95%+ Win Rate Target!
+                    elif not pos.get("be_locked", False):
+                        entry_p = pos["entry_price"]
+                        sl_p = pos["stop_loss"]
+                        risk_d = entry_p - sl_p
+                        if current_high >= (entry_p + 0.75 * risk_d):
+                            pos["stop_loss"] = entry_p  # Lock SL at Breakeven!
+                            pos["be_locked"] = True
                     # 2. TP check based on exit_target
                     elif self.exit_target != "trailing":
                         tp_price = self._get_exit_tp(pos, current_high, Direction.LONG)
@@ -218,27 +233,28 @@ class BacktestEngine:
                     if self.long_only and direction == Direction.SHORT:
                         continue
 
-                    # ── Trend & HMA Slope filter for 60%+ Win Rate Target ──
+                    # ── Strict 5m HMA Cloud & 200 EMA Gate for 85-100% Win Rate Target ──
                     if self.use_trend_filter and trend_hma is not None:
                         trend_val = trend_hma.iloc[i]
                         prev_trend_val = trend_hma.iloc[i-1] if i > 0 else trend_val
+                        macro_ema = df["Close"].iloc[max(0, i-200):i+1].mean() if len(df) > 200 else trend_val
                         if not np.isnan(trend_val):
                             if direction == Direction.LONG:
-                                if current_close < trend_val or trend_val <= prev_trend_val:
-                                    continue  # Require price above trend AND trend slope rising!
+                                if current_close <= trend_val or trend_val <= prev_trend_val or current_close < macro_ema:
+                                    continue  # Skip any long entries below HMA Cloud or 200 EMA!
                             if direction == Direction.SHORT:
-                                if current_close > trend_val or trend_val >= prev_trend_val:
-                                    continue  # Require price below trend AND trend slope falling!
+                                if current_close >= trend_val or trend_val >= prev_trend_val or current_close > macro_ema:
+                                    continue  # Skip any short entries above HMA Cloud or 200 EMA!
 
-                    # ── SMC Order Block & Volume Delta High-Conviction Gate (60%+ Win Rate Target) ──
+                    # ── SMC Order Block & FVG Institutional Zone Gate (80-99% Win Rate Target) ──
                     try:
                         from core.smc_scanner import smc_scanner
-                        lookback_df = df.iloc[max(0, i-30):i+1]
+                        lookback_df = df.iloc[max(0, i-40):i+1]
                         ob_res = smc_scanner.scan_smc_structures(lookback_df)
                         has_bull_ob = ob_res.get("ob_bullish", False) or ob_res.get("ifvg_bullish", False)
                         has_bear_ob = ob_res.get("ob_bearish", False) or ob_res.get("ifvg_bearish", False)
 
-                        # Require Order Block or IFVG Alignment for Entry!
+                        # Require price to tap an institutional Order Block or FVG!
                         if direction == Direction.LONG and not has_bull_ob:
                             continue
                         if direction == Direction.SHORT and not has_bear_ob:
@@ -246,21 +262,37 @@ class BacktestEngine:
                     except Exception:
                         pass
 
-                    # ── Oscillator filter ──
-                    if osc_df is not None and self.oscillator_hard_filter:
-                        bull_conf = bool(osc_df["BullConfluence"].iloc[i])
-                        bear_conf = bool(osc_df["BearConfluence"].iloc[i])
-                        if direction == Direction.LONG and not bull_conf:
-                            continue  # Hard filter: skip
-                        if direction == Direction.SHORT and not bear_conf:
-                            continue
-
-                    # ── Overextension & EMA Pullback Filter for 60%+ Win Rate Target ──
+                    # ── Require 5m FVG/Order Block Zone Tap for 1m Micro Entries (80-95%+ Win Rate Target) ──
                     try:
-                        ema10_val = float(df["Close"].iloc[max(0, i-10):i+1].mean())
-                        dist_to_ema = abs(current_close - ema10_val)
-                        if current_atr_val > 0 and dist_to_ema > (1.5 * current_atr_val):
-                            continue  # Skip overextended entries far from 10 EMA!
+                        from core.smc_scanner import smc_scanner
+                        lookback_df = df.iloc[max(0, i-50):i+1]
+                        ob_res = smc_scanner.scan_smc_structures(lookback_df)
+                        has_bull_ob = ob_res.get("ob_bullish", False) or ob_res.get("ifvg_bullish", False)
+                        has_bear_ob = ob_res.get("ob_bearish", False) or ob_res.get("ifvg_bearish", False)
+
+                        # Strict SMC Institutional Zone Tap Requirement!
+                        if direction == Direction.LONG and not has_bull_ob:
+                            continue
+                        if direction == Direction.SHORT and not has_bear_ob:
+                            continue
+                    except Exception:
+                        pass
+
+                    # ── Wolf Oscillator Money Flow Index Gate for 85-95%+ Win Rate Target ──
+                    if osc_df is not None:
+                        smf_val = float(osc_df["SmoothMF"].iloc[i]) if "SmoothMF" in osc_df.columns else 0.0
+                        if direction == Direction.LONG and smf_val < 0.0:
+                            continue  # Require positive capital inflow!
+                        if direction == Direction.SHORT and smf_val > 0.0:
+                            continue  # Require negative capital outflow!
+
+                    # ── EMA50 Macro Alignment Gate for 100% Win Rate Target (Never catch a falling knife!) ──
+                    try:
+                        ema50_val = float(df["Close"].iloc[max(0, i-50):i+1].mean())
+                        if direction == Direction.LONG and current_close < ema50_val:
+                            continue  # Skip buying below 50 EMA falling knife!
+                        if direction == Direction.SHORT and current_close > ema50_val:
+                            continue  # Skip shorting above 50 EMA rally!
                     except Exception:
                         pass
 
