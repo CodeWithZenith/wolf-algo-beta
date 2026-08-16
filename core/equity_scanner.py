@@ -247,26 +247,59 @@ def send_equity_gapper_discord_alert(gapper: Dict):
         logging.error(f"Failed to send Discord gapper alert: {e}")
 
 
+CACHE_FILE_PATH = Path(__file__).parent.parent / "data" / "equity_seen_alerts.json"
+
+def load_seen_alerts_cache() -> set:
+    """Loads previously alerted symbols from persistent disk cache to prevent Docker restart spam."""
+    try:
+        if CACHE_FILE_PATH.exists():
+            import json
+            with open(CACHE_FILE_PATH, "r") as f:
+                data = json.load(f)
+                return set(data.get("seen_symbols", []))
+    except Exception as e:
+        logging.warning(f"Could not load equity alert cache: {e}")
+    return set()
+
+def save_seen_alerts_cache(seen_alerts: set):
+    """Saves alerted symbols to persistent disk cache."""
+    try:
+        import json
+        CACHE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(CACHE_FILE_PATH, "w") as f:
+            json.dump({"seen_symbols": list(seen_alerts), "updated_at": datetime.now(timezone.utc).isoformat()}, f)
+    except Exception as e:
+        logging.warning(f"Could not save equity alert cache: {e}")
+
 def run_equity_scanner_loop():
     """Main background loop for the Equity Momentum Scanner."""
     logging.info("🚀 Starting Wolf Algo Equity Momentum Scanner (Ross Cameron Strategy)...")
-    seen_alerts = set()
+    seen_alerts = load_seen_alerts_cache()
+    is_startup_cycle = True
 
     while True:
         try:
             gappers = fetch_top_equity_gappers()
-            logging.info(f"Scanned market: Found {len(gappers)} stocks meeting all 5 Guardrail criteria.")
+            logging.info(f"Scanned market: Found {len(gappers)} stocks meeting Guardrail criteria. (Startup cycle: {is_startup_cycle})")
 
             for gapper in gappers:
                 sym = gapper["symbol"]
                 # Alert once per stock per session to prevent spam
                 if sym not in seen_alerts:
-                    send_equity_gapper_discord_alert(gapper)
+                    if not is_startup_cycle:
+                        send_equity_gapper_discord_alert(gapper)
+                    else:
+                        logging.info(f"Populating cache on startup without spamming Discord: {sym}")
                     seen_alerts.add(sym)
+
+            # Persist seen alerts cache to disk
+            save_seen_alerts_cache(seen_alerts)
+            is_startup_cycle = False
 
             # Clear cache if over 100 tickers to allow re-alerting on new breakouts
             if len(seen_alerts) > 100:
                 seen_alerts.clear()
+                save_seen_alerts_cache(seen_alerts)
 
         except Exception as e:
             logging.error(f"Scanner loop error: {e}")
