@@ -198,6 +198,94 @@ class RobbinsCupEngine:
             return f"❌ Failed to generate GEX report: {e}"
 
     @staticmethod
+    def check_and_alert_gex_flips() -> Dict[str, any]:
+        """
+        Monitors live GEX regime flips (Bullish <-> Bearish) across Gold, NAS100, S&P500, DOW30, & BTC.
+        Fires high-priority Discord webhook alerts when a transition occurs!
+        Stores persistent state in data/gex_last_states.json to prevent alert spam.
+        """
+        import os, json, yfinance as yf
+        from pathlib import Path
+
+        data_dir = Path("data")
+        data_dir.mkdir(exist_ok=True)
+        cache_file = data_dir / "gex_last_states.json"
+
+        last_states = {}
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r") as f:
+                    last_states = json.load(f)
+            except Exception:
+                last_states = {}
+
+        assets = {
+            "GOLD": ("GC=F", "Gold Spot"),
+            "NAS100": ("NQ=F", "Nasdaq 100"),
+            "SP500": ("ES=F", "S&P 500"),
+            "DOW30": ("YM=F", "Dow Jones 30"),
+            "BTC": ("BTC-USD", "Bitcoin")
+        }
+
+        alerts_fired = []
+        new_states = dict(last_states)
+
+        for key, (sym, name) in assets.items():
+            try:
+                df = yf.download(sym, period="1mo", interval="1d", progress=False)
+                g = RobbinsCupEngine.run_premarket_gex_analysis(df)
+                curr_is_above = bool(g["price_above_gamma_flip"])
+                curr_regime = str(g["weekly_gex_regime"])
+                flip_level = float(g["gamma_flip_level"])
+
+                prev_state = last_states.get(key)
+                # First run warmup check
+                if prev_state is None:
+                    new_states[key] = {"above_flip": curr_is_above, "regime": curr_regime}
+                    continue
+
+                prev_above = prev_state.get("above_flip")
+                prev_regime = prev_state.get("regime")
+
+                # Detect Bullish Flip (Bearish -> Bullish)
+                if not prev_above and curr_is_above:
+                    msg = (
+                        f"🏛️ **AUTOMATIC GEX ALERT: BULLISH GAMMA FLIP DETECTED** (`{name}`)\n"
+                        f"Price has crossed **ABOVE** the Gamma Flip Zone (`${flip_level:,.2f}`)!\n"
+                        f"• **GEX Regime:** `{curr_regime}` ({g['gex_score']:.1f}/100)\n"
+                        f"• **Call Wall Resistance:** `${g['call_wall']:,.2f}` | **Put Wall Support:** `${g['put_wall']:,.2f}`\n"
+                        f"⚡ **DEALER BEHAVIOR:** Volatility dampening active. High-probability long scalp setup window OPEN."
+                    )
+                    from core.execution import send_discord_alert
+                    send_discord_alert(f"🚀 BULLISH GEX FLIP: {name}", msg, color=0x2ECC71)
+                    alerts_fired.append(f"BULLISH_FLIP:{key}")
+
+                # Detect Bearish Flip (Bullish -> Bearish)
+                elif prev_above and not curr_is_above:
+                    msg = (
+                        f"🚨 **AUTOMATIC GEX ALERT: BEARISH GAMMA FLIP DETECTED** (`{name}`)\n"
+                        f"Price has crossed **BELOW** the Gamma Flip Zone (`${flip_level:,.2f}`)!\n"
+                        f"• **GEX Regime:** `{curr_regime}` ({g['gex_score']:.1f}/100)\n"
+                        f"• **Call Wall Resistance:** `${g['call_wall']:,.2f}` | **Put Wall Support:** `${g['put_wall']:,.2f}`\n"
+                        f"⚡ **DEALER BEHAVIOR:** Volatility expansion active. Exercise caution on long entries."
+                    )
+                    from core.execution import send_discord_alert
+                    send_discord_alert(f"🚨 BEARISH GEX FLIP: {name}", msg, color=0xE74C3C)
+                    alerts_fired.append(f"BEARISH_FLIP:{key}")
+
+                new_states[key] = {"above_flip": curr_is_above, "regime": curr_regime}
+            except Exception as e:
+                pass
+
+        try:
+            with open(cache_file, "w") as f:
+                json.dump(new_states, f, indent=2)
+        except Exception:
+            pass
+
+        return {"alerts_fired": alerts_fired, "states": new_states}
+
+    @staticmethod
     def check_ote_discount_zone(df: pd.DataFrame, lookback: int = 40) -> Dict[str, float]:
         """
         Calculates Chris Creamer's Deep OTE Discount Fibonacci Retracement Levels:

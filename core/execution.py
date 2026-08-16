@@ -587,6 +587,13 @@ def run_strategy_cycle():
         send_discord_alert("📰 News Blackout Active", msg, color=0xF1C40F)
         return
 
+    # 2b. Automatic Multi-Asset GEX Flip Monitor (Gold, NAS100, S&P500, DOW30, BTC)
+    try:
+        from core.robbins_cup_engine import robbins_cup_engine
+        robbins_cup_engine.check_and_alert_gex_flips()
+    except Exception as e:
+        print(f"GEX flip monitor error: {e}")
+
     # 3. Core Liquidity Session Filter check
     if not is_in_core_session() and not has_open_position:
         print("⏰ Outside Core Trading Session (CME Settlement Window 4pm-6pm EST). Holding state.")
