@@ -524,8 +524,8 @@ def run_strategy_cycle():
         price_stop_distance = 2.00
         effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "150.0"))
     else:
-        calculated_qty = 0.02
-        actual_max_risk = 5.00
+        calculated_qty = 0.03
+        actual_max_risk = 7.50
         price_stop_distance = 1.00
         effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "25.0"))
 
