@@ -13,6 +13,12 @@ indicator("Wolf Algo V6 — Robbins Cup Champion Edition", overlay=true, max_lab
 //   6. Wolf Algo V1 / Wolf Oscillator Tanh Momentum Confluence
 // ==============================================================================
 
+// ── CUSTOM TANH HYPERBOLIC FUNCTION FOR PINE V6 ──
+custom_tanh(float x) =>
+    float clampedX = math.max(math.min(x, 10.0), -10.0)
+    float e2x = math.exp(2.0 * clampedX)
+    (e2x - 1.0) / (e2x + 1.0)
+
 // ── INPUT PARAMETERS ──
 grp_robbins   = "🏆 Chris Creamer Robbins Cup Settings"
 swingLookback = input.int(40, "Swing High/Low Lookback Bars", minval=10, maxval=200, group=grp_robbins)
@@ -31,6 +37,7 @@ showDashboard = input.bool(true, "Show Live Robbins Cup GEX Dashboard", group=gr
 // ── STEP 1: MACRO TREND & EMA FILTER ──
 ema200 = ta.ema(close, emaPeriod)
 isBullishEma = close >= ema200
+emaCrossUnder = ta.crossunder(close, ema200)
 
 // ── STEP 2: DEEP OTE DISCOUNT RETRACEMENT CALCULATIONS ──
 swingHigh = ta.highest(high, swingLookback)
@@ -68,7 +75,7 @@ isBullishAbsorption = (lowerWick >= (candleBody * 0.35)) and isVolumeSurge and (
 
 // ── STEP 5: WOLF OSCILLATOR TANH MOMENTUM & CONFLUENCE ──
 rawOsc = ta.rsi(close, 14) - 50.0
-tanhMomentum = math.tanh(rawOsc / 10.0)
+tanhMomentum = custom_tanh(rawOsc / 10.0)
 isOscBullish = tanhMomentum > 0.15
 
 // ── STEP 6: UNIFIED ROBBINS CUP BUY & SELL SIGNALS ──
@@ -79,7 +86,7 @@ validWick = not useWickFilter or (lowerWick >= (candleBody * 0.35))
 validEma  = not useEmaFilter or isBullishEma
 
 buySignal  = validOte and validGex and validCvd and validWick and validEma and isOscBullish and not is886Invalidated
-sellSignal = (close < fib886) or (ta.crossunder(close, ema200) and isPositiveGex)
+sellSignal = (close < fib886) or (emaCrossUnder and isPositiveGex)
 
 // ── VISUAL PLOTS & CHARTS ──
 plot(ema200, "200 EMA", color=color.rgb(255, 152, 0), linewidth=2)
