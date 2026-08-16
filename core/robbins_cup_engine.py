@@ -6,6 +6,7 @@ Implements Chris Creamer's (Robbins Cup World Champion) 4-Step Strategy:
   2. Value Area & Auction Market Context (POC, VAH, VAL)
   3. Deep OTE Discount Zones (0.705, 0.788, 0.886 Fibonacci Retracements)
   4. Orderflow Delta Forced Participation & 2-Loss Session Max Circuit Breaker
+  5. 0.886 Fib Absolute Line in the Sand Invalidation
 """
 
 import numpy as np
@@ -63,10 +64,10 @@ class RobbinsCupEngine:
         Calculates Chris Creamer's Deep OTE Discount Retracement Levels:
           - 0.705 Retracement (Sweet Spot)
           - 0.788 Retracement (Deep Discount)
-          - 0.886 Retracement (Institutional Limit)
+          - 0.886 Retracement (Institutional Limit Line in the Sand)
         """
         if len(df) < lookback:
-            return {"in_ote_zone": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
+            return {"in_ote_zone": False, "invalidated_below_886": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
 
         lookback_df = df.iloc[-lookback:]
         high_s = RobbinsCupEngine._get_series(lookback_df, ["high", "High", "h"])
@@ -74,7 +75,7 @@ class RobbinsCupEngine:
         close_s = RobbinsCupEngine._get_series(lookback_df, ["close", "Close", "c"])
 
         if high_s is None or low_s is None or close_s is None:
-            return {"in_ote_zone": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
+            return {"in_ote_zone": False, "invalidated_below_886": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
 
         swing_high = float(high_s.max())
         swing_low = float(low_s.min())
@@ -82,17 +83,19 @@ class RobbinsCupEngine:
 
         range_dist = swing_high - swing_low
         if range_dist <= 0:
-            return {"in_ote_zone": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
+            return {"in_ote_zone": False, "invalidated_below_886": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
 
         fib_705 = swing_high - (0.705 * range_dist)
         fib_788 = swing_high - (0.788 * range_dist)
         fib_886 = swing_high - (0.886 * range_dist)
 
-        # In Bullish OTE Discount Zone if price is between 0.705 and 0.886 retracement
-        in_bull_ote = fib_886 <= curr_close <= fib_705
+        # 0.886 Fib is Chris Creamer's Line in the Sand!
+        invalidated_below_886 = curr_close < fib_886
+        in_bull_ote = (fib_886 <= curr_close <= fib_705) and not invalidated_below_886
 
         return {
             "in_ote_zone": in_bull_ote,
+            "invalidated_below_886": invalidated_below_886,
             "swing_high": round(swing_high, 2),
             "swing_low": round(swing_low, 2),
             "ote_level_705": round(fib_705, 2),
@@ -104,8 +107,9 @@ class RobbinsCupEngine:
     def evaluate_robbins_cup_signal(df: pd.DataFrame, consecutive_losses: int = 0) -> Dict[str, any]:
         """
         Full 4-Step Robbins Cup Strategy Signal Evaluator.
-        Enforces 2-loss session tilt circuit breaker!
+        Enforces 2-loss session tilt circuit breaker and 0.886 Fib invalidation!
         """
+        # Step 0: 2-Loss Session Tilt Control Circuit Breaker
         if consecutive_losses >= 2:
             return {
                 "valid": False,
@@ -114,6 +118,12 @@ class RobbinsCupEngine:
 
         gex_info = RobbinsCupEngine.calculate_gex_volatility_regime(df)
         ote_info = RobbinsCupEngine.check_ote_discount_zone(df)
+
+        if ote_info.get("invalidated_below_886", False):
+            return {
+                "valid": False,
+                "reason": "ROBBINS CUP INVALIDATED: Price broke below 0.886 Fib line in the sand."
+            }
 
         from core.orderflow import detect_delta_absorption
         is_bull_abs, is_bear_abs, of_metrics = detect_delta_absorption(df)
