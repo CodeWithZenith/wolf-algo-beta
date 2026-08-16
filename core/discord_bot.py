@@ -64,7 +64,7 @@ def handle_discord_command(command_str: str) -> str:
     from core.execution import initialize_client, SYMBOL
 
     # 1. STATUS / PNL COMMAND
-    if cmd in ["!status", "status", "!pnl", "pnl", "!balance", "accounts"]:
+    if cmd in ["!status", "status", "!pnl", "pnl", "!balance", "balance", "accounts"]:
         try:
             tl = initialize_client()
             acc_df = tl.get_all_accounts()
