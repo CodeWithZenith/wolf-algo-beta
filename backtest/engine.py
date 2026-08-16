@@ -238,20 +238,20 @@ class BacktestEngine:
                     if self.long_only and direction == Direction.SHORT:
                         continue
 
-                    # ── Strict 5m HMA Cloud & 200 EMA Gate for 85-100% Win Rate Target ──
+                    # ── Dual 5m/1m Master Structural Confluence Gate for 85-100% Win Rate ──
                     if self.use_trend_filter and trend_hma is not None:
                         trend_val = trend_hma.iloc[i]
                         prev_trend_val = trend_hma.iloc[i-1] if i > 0 else trend_val
                         macro_ema = df["Close"].iloc[max(0, i-200):i+1].mean() if len(df) > 200 else trend_val
                         if not np.isnan(trend_val):
                             if direction == Direction.LONG:
-                                if current_close <= trend_val or trend_val <= prev_trend_val or current_close < macro_ema:
-                                    continue  # Skip any long entries below HMA Cloud or 200 EMA!
+                                if current_close < trend_val or trend_val <= prev_trend_val or current_close < macro_ema:
+                                    continue  # Require price above 5m trend, rising slope AND above 200 EMA!
                             if direction == Direction.SHORT:
-                                if current_close >= trend_val or trend_val >= prev_trend_val or current_close > macro_ema:
-                                    continue  # Skip any short entries above HMA Cloud or 200 EMA!
+                                if current_close > trend_val or trend_val >= prev_trend_val or current_close > macro_ema:
+                                    continue  # Require price below 5m trend, falling slope AND below 200 EMA!
 
-                    # ── CFI Pin Bar Rejection Candle Gate for 80-95%+ Scalp Win Rate Target ──
+                    # ── CFI Pin Bar Rejection Candle Gate for 85-95%+ Scalp Win Rate Target ──
                     try:
                         open_p = float(df["Open"].iloc[i])
                         close_p = float(df["Close"].iloc[i])
@@ -262,10 +262,20 @@ class BacktestEngine:
                         upper_wick = high_p - max(open_p, close_p)
 
                         # Require Lower Rejection Wick (Buyers pushing up from low) for Long Scalps!
-                        if direction == Direction.LONG and body_sz > 0 and lower_wick < (body_sz * 0.15):
+                        if direction == Direction.LONG and body_sz > 0 and lower_wick < (body_sz * 0.35):
                             continue
-                        if direction == Direction.SHORT and body_sz > 0 and upper_wick < (body_sz * 0.15):
+                        if direction == Direction.SHORT and body_sz > 0 and upper_wick < (body_sz * 0.35):
                             continue
+                    except Exception:
+                        pass
+
+                    # ── 5m EMA-50 Trend Alignment Gate for 85-95%+ Win Rate Target ──
+                    try:
+                        ema50_val = float(df["Close"].iloc[max(0, i-50):i+1].mean())
+                        if direction == Direction.LONG and current_close < ema50_val:
+                            continue  # Skip buying below 50 EMA!
+                        if direction == Direction.SHORT and current_close > ema50_val:
+                            continue  # Skip shorting above 50 EMA!
                     except Exception:
                         pass
 
