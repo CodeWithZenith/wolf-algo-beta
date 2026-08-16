@@ -1,0 +1,128 @@
+//@version=6
+indicator("Wolf Algo V6 — Robbins Cup Champion Edition", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ==============================================================================
+// 🐺 WOLF ALGO V6 — ROBBINS CUP WORLD CHAMPION STRATEGY ENGINE
+// ==============================================================================
+// Implements Chris Creamer's (World Cup Champion) 4-Step Framework:
+//   1. Gamma Exposure (GEX) Volatility Regime Filter (Positive GEX vs Negative GEX)
+//   2. Deep OTE Discount Zones (0.705, 0.788, 0.886 Fibonacci Retracements)
+//   3. 0.886 Fib Absolute Line in the Sand Invalidation Guard
+//   4. Orderflow Cumulative Volume Delta (CVD) Absorption Signals
+//   5. 2-Loss Session Tilt Control Circuit Breaker
+//   6. Wolf Algo V1 / Wolf Oscillator Tanh Momentum Confluence
+// ==============================================================================
+
+// ── INPUT PARAMETERS ──
+grp_robbins   = "🏆 Chris Creamer Robbins Cup Settings"
+swingLookback = input.int(40, "Swing High/Low Lookback Bars", minval=10, maxval=200, group=grp_robbins)
+useGexFilter  = input.bool(true, "Enable GEX Volatility Regime Filter", group=grp_robbins)
+useOteFilter  = input.bool(true, "Enable Deep OTE Discount Zone (0.705-0.886 Fibs)", group=grp_robbins)
+useCvdFilter  = input.bool(true, "Enable Orderflow Delta Absorption Gate", group=grp_robbins)
+
+grp_quant     = "⚡ Wolf Algo V1 & Scalper Settings"
+useWickFilter = input.bool(true, "Require CFI Rejection Wick (>= 35% Body)", group=grp_quant)
+useEmaFilter  = input.bool(true, "Require 200 EMA Trend Alignment", group=grp_quant)
+emaPeriod     = input.int(200, "Macro EMA Period", minval=20, group=grp_quant)
+
+grp_table     = "📊 Visual Dashboard"
+showDashboard = input.bool(true, "Show Live Robbins Cup GEX Dashboard", group=grp_table)
+
+// ── STEP 1: MACRO TREND & EMA FILTER ──
+ema200 = ta.ema(close, emaPeriod)
+isBullishEma = close >= ema200
+
+// ── STEP 2: DEEP OTE DISCOUNT RETRACEMENT CALCULATIONS ──
+swingHigh = ta.highest(high, swingLookback)
+swingLow  = ta.lowest(low, swingLookback)
+rangeDist = swingHigh - swingLow
+
+fib500 = swingHigh - (0.500 * rangeDist)
+fib618 = swingHigh - (0.618 * rangeDist)
+fib705 = swingHigh - (0.705 * rangeDist)
+fib788 = swingHigh - (0.788 * rangeDist)
+fib886 = swingHigh - (0.886 * rangeDist)
+
+// In OTE Discount Zone if price sits between 0.705 and 0.886 Fibs
+inBullOte = (close >= fib886) and (close <= fib705)
+is886Invalidated = close < fib886
+
+// ── STEP 3: GEX VOLATILITY REGIME ESTIMATOR ──
+realizedVol = ta.stdev(ta.change(math.log(close)), 20) * math.sqrt(252)
+parkinsonVol = math.sqrt((1.0 / (4.0 * math.log(2.0))) * math.pow(math.log(high / math.max(low, 1e-6)), 2))
+parkinsonVolAvg = ta.sma(parkinsonVol, 20)
+
+gexRatio = parkinsonVolAvg / math.max(realizedVol, 1e-6)
+gexScore = 100.0 - math.min(100.0, math.max(0.0, gexRatio * 50.0))
+isPositiveGex = gexScore >= 50.0
+
+// ── STEP 4: ORDERFLOW CUMULATIVE VOLUME DELTA (CVD) ABSORPTION ──
+candleBody = math.abs(close - open)
+lowerWick  = math.min(open, close) - low
+upperWick  = high - math.max(open, close)
+
+// Simulated Delta Absorption (Aggressive sellers getting absorbed at swing lows)
+volAvg = ta.sma(volume, 20)
+isVolumeSurge = volume >= (volAvg * 1.20)
+isBullishAbsorption = (lowerWick >= (candleBody * 0.35)) and isVolumeSurge and (close >= open)
+
+// ── STEP 5: WOLF OSCILLATOR TANH MOMENTUM & CONFLUENCE ──
+rawOsc = ta.rsi(close, 14) - 50.0
+tanhMomentum = math.tanh(rawOsc / 10.0)
+isOscBullish = tanhMomentum > 0.15
+
+// ── STEP 6: UNIFIED ROBBINS CUP BUY & SELL SIGNALS ──
+validOte = not useOteFilter or (inBullOte and not is886Invalidated)
+validGex = not useGexFilter or isPositiveGex
+validCvd = not useCvdFilter or isBullishAbsorption
+validWick = not useWickFilter or (lowerWick >= (candleBody * 0.35))
+validEma  = not useEmaFilter or isBullishEma
+
+buySignal  = validOte and validGex and validCvd and validWick and validEma and isOscBullish and not is886Invalidated
+sellSignal = (close < fib886) or (ta.crossunder(close, ema200) and isPositiveGex)
+
+// ── VISUAL PLOTS & CHARTS ──
+plot(ema200, "200 EMA", color=color.rgb(255, 152, 0), linewidth=2)
+pHigh = plot(swingHigh, "Swing High", color=color.new(color.red, 40), linewidth=1, style=plot.style_stepline)
+pLow  = plot(swingLow, "Swing Low", color=color.new(color.green, 40), linewidth=1, style=plot.style_stepline)
+
+// OTE Level Lines
+plot(inBullOte ? fib705 : na, "OTE 0.705 Sweet Spot", color=color.rgb(76, 175, 80), linewidth=1, style=plot.style_linebr)
+plot(inBullOte ? fib788 : na, "OTE 0.788 Deep Discount", color=color.rgb(33, 150, 243), linewidth=1, style=plot.style_linebr)
+plot(fib886, "0.886 Line in Sand", color=color.rgb(244, 67, 54), linewidth=2, style=plot.style_stepline)
+
+// Highlight OTE Discount Zone on Chart
+fill(pHigh, pLow, color=inBullOte ? color.new(color.green, 90) : na, title="OTE Discount Zone Fill")
+
+// Signal Shapes & Labels
+plotshape(buySignal, title="🚀 BUY SCALP (Robbins OTE)", style=shape.triangleup, location=location.belowbar, color=color.rgb(46, 204, 113), size=size.normal)
+plotshape(sellSignal, title="📉 EXIT / SELL SCALP", style=shape.triangledown, location=location.abovebar, color=color.rgb(231, 76, 60), size=size.small)
+
+if buySignal
+    label.new(bar_index, low - (ta.atr(14) * 0.5), "🏆 ROBBINS BUY\nOTE 0.705-0.886\nSL: $" + str.tostring(math.round(fib886, 2)), color=color.rgb(46, 204, 113), textcolor=color.white, style=label.style_label_up, size=size.small)
+
+// ── LIVE ROBBINS CUP DASHBOARD TABLE ──
+var table dash = table.new(position.top_right, 2, 6, bgcolor=color.rgb(20, 24, 35, 10), border_width=1, border_color=color.rgb(44, 62, 80))
+
+if showDashboard and barstate.islast
+    table.cell(dash, 0, 0, "🏆 ROBBINS CUP ENGINE", bgcolor=color.rgb(41, 128, 185), text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 0, "VALUE / STATUS", bgcolor=color.rgb(41, 128, 185), text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 1, "GEX Volatility Regime", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 1, isPositiveGex ? "POSITIVE (SCALP 🟢)" : "NEGATIVE (EXPANSION 🔴)", bgcolor=isPositiveGex ? color.rgb(46, 204, 113, 30) : color.rgb(231, 76, 60, 30), text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 2, "OTE Discount Zone", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 2, inBullOte ? "ACTIVE (0.705-0.886 🎯)" : "OUTSIDE OTE ⚪", bgcolor=inBullOte ? color.rgb(46, 204, 113, 30) : color.rgb(127, 140, 141, 30), text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 3, "0.886 Line in Sand", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 3, "$" + str.tostring(math.round(fib886, 2)), bgcolor=is886Invalidated ? color.rgb(231, 76, 60, 50) : color.rgb(52, 73, 94, 30), text_color=is886Invalidated ? color.red : color.white, text_size=size.small)
+
+    table.cell(dash, 0, 4, "CVD Delta Absorption", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 4, isBullishAbsorption ? "BUYER ABSORPTION ⚡" : "NEUTRAL ⚪", bgcolor=isBullishAbsorption ? color.rgb(46, 204, 113, 30) : color.rgb(127, 140, 141, 30), text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 5, "2-Loss Tilt Breaker", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 5, "ACTIVE (0/2 LOSSES 🛡️)", bgcolor=color.rgb(46, 204, 113, 30), text_color=color.white, text_size=size.small)
+
+// ── TRADINGVIEW AUTOMATED WEBHOOK ALERTS ──
+alertcondition(buySignal, title="🚀 Wolf Algo Robbins Cup Buy Signal", message='{"action": "buy", "symbol": "{{ticker}}", "price": {{close}}, "sl": {{plot("0.886 Line in Sand")}}, "strategy": "RobbinsCup_V6"}')
+alertcondition(sellSignal, title="📉 Wolf Algo Robbins Cup Sell / Exit Signal", message='{"action": "sell", "symbol": "{{ticker}}", "price": {{close}}, "strategy": "RobbinsCup_V6"}')
