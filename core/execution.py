@@ -90,9 +90,10 @@ def is_in_news_blackout_window() -> bool:
 def is_in_core_session() -> bool:
     """
     Enforces user's exact preferred trading session windows (in EST / EDT):
-      - Window 1 (Main Session):  7:00 PM EST – 12:00 PM (Noon) EST  (Asian, London & NY Morning)
+      - Pre-Market Analysis Window: 6:00 PM EST – 7:00 PM EST (Pre-computes market structure & SMC OBs for 7pm move)
+      - Window 1 (Main Execution): 7:00 PM EST – 12:00 PM (Noon) EST  (Asian, London & NY Morning)
       - Window 2 (Power Hour):    2:30 PM EST – 4:00 PM EST           (Pre-Close Afternoon)
-      - Off-Hours / Rest Window: 12:00 PM – 2:30 PM EST & 4:00 PM – 7:00 PM EST (0 Trades / Closed)
+      - Off-Hours / Settlement:   5:00 PM EST – 6:00 PM EST           (CME Rollover Window)
     """
     if not SESSION_FILTER_ENABLED:
         return True
@@ -103,8 +104,9 @@ def is_in_core_session() -> bool:
     est_minute = now_utc.minute
     est_decimal_time = est_hour + (est_minute / 60.0)
 
-    # Window 1: 7:00 PM EST (19.0) to 12:00 PM Noon EST (12.0)
-    is_window_1 = (est_decimal_time >= 19.0) or (est_decimal_time < 12.0)
+    # 6:00 PM EST (18.0) to 7:00 PM EST (19.0) -> Pre-Market Structure Analysis
+    # 7:00 PM EST (19.0) to 12:00 PM Noon EST (12.0) -> Main Execution Window 1
+    is_window_1 = (est_decimal_time >= 18.0) or (est_decimal_time < 12.0)
 
     # Window 2: 2:30 PM EST (14.5) to 4:00 PM EST (16.0)
     is_window_2 = 14.5 <= est_decimal_time <= 16.0
