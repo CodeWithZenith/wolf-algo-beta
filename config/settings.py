@@ -31,7 +31,7 @@ class BrokerConfig:
 class RiskConfig:
     max_drawdown_pct: float = 2.0  # 2.0% max drawdown limit ($500 static drawdown on $25k account)
     max_loss_per_trade_pct: float = 0.08  # 0.08% risk per trade ($20 max loss per trade)
-    hard_daily_loss_limit: float = 150.0  # $150 daily loss cap to protect $500 static limit
+    hard_daily_loss_limit: float = 250.0  # $250 daily loss cap to protect $500 static limit (50% max drawdown cap)
     max_open_positions: int = 1  # 1 position at a time max
     require_structural_stop: bool = True
     long_only: bool = False  # Trade BOTH Longs and Shorts!

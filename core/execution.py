@@ -413,7 +413,14 @@ def run_strategy_cycle():
     macro_hma = macro_row['hma']
     is_macro_bullish = macro_close > macro_hma if not np.isnan(macro_hma) else True
 
-    # 2. Fetch 5m Intraday Price History for Fast Setup & Volatility (5m HMA-20)
+    # 2. Fetch 1m Micro Precision & 5m Intraday Price History (1m / 2m Precision Entries)
+    try:
+        raw_1m = tl.get_price_history(instrument_id, resolution="1m", lookback_period="1D")
+        df_1m = pd.DataFrame(raw_1m)
+        df_1m = calculate_indicators(df_1m, hma_period=10)
+    except Exception:
+        df_1m = None
+
     raw_intraday = tl.get_price_history(instrument_id, resolution="5m", lookback_period="2D")
     df_intraday = pd.DataFrame(raw_intraday)
     df_intraday = calculate_indicators(df_intraday, hma_period=20)
@@ -496,13 +503,28 @@ def run_strategy_cycle():
     # For $1k Account (Balance < $50,000):
     #   - Lot Size: 0.05 Lots (5 oz of Gold)
     #   - Max Risk: $5.00  | Stop Loss Distance: $1.00 Gold Price Points
+    # ── 4-TIER INSTITUTIONAL ACCOUNT RISK SCALING ENGINE ──
+    # Tier 1: $100k Prop/Inst Account (Balance >= $50,000) -> $500 Daily Loss Cap
+    # Tier 2: $25k Futures Account ($10,000 <= Balance < $50,000) -> $250 Daily Loss Cap (50% of $500 hard breach!)
+    # Tier 3: $5k Standard Account ($2,500 <= Balance < $10,000) -> $150 Daily Loss Cap
+    # Tier 4: $1k Micro Account (Balance < $2,500) -> $25 Daily Loss Cap
     if cash_balance >= 50000.0:
         calculated_qty = 0.10
         actual_max_risk = 50.00
         price_stop_distance = 5.00
         effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "500.0"))
-    else:
+    elif cash_balance >= 10000.0:
+        calculated_qty = 0.08
+        actual_max_risk = 25.00
+        price_stop_distance = 3.00
+        effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "250.0"))
+    elif cash_balance >= 2500.0:
         calculated_qty = 0.05
+        actual_max_risk = 15.00
+        price_stop_distance = 2.00
+        effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "150.0"))
+    else:
+        calculated_qty = 0.02
         actual_max_risk = 5.00
         price_stop_distance = 1.00
         effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "25.0"))
