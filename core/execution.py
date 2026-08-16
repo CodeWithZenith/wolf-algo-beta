@@ -497,27 +497,32 @@ def run_strategy_cycle():
     is_wolf_osc_bullish = (osc_wave1 > osc_wave2) and (osc_smf > 0.0)
     is_wolf_osc_bearish = (osc_wave1 < osc_wave2) and (osc_smf < 0.0)
 
-    # ── STRICT MARKET REGIME ALIGNMENT ENGINE ──
-    # 1. BULLISH REGIME (1D HMA-100 is Bullish):
-    #    - BUY LONG trades: Allowed when Intraday & Wolf Osc are Bullish.
-    #    - SELL SHORT trades: STRICTLY BLOCKED in a Bullish Regime UNLESS prob_score >= 100 (Full 10-Factor Extreme Reversal!)
-    # 2. BEARISH REGIME (1D HMA-100 is Bearish):
-    #    - SELL SHORT trades: Allowed when Intraday & Wolf Osc are Bearish.
-    #    - BUY LONG trades: STRICTLY BLOCKED in a Bearish Regime UNLESS prob_score >= 100 (Full 10-Factor Extreme Reversal!)
+    # ── SESSION TRADE FREQUENCY & CONFLUENCE ENGINE ──
+    # Session Targets: 1-4 Big Winners or 5-10 High-Probability Scalp Setups per Session.
+    # Exception Days: Dead Chop Squeeze or High-Impact News Blackout -> 0 TRADES PLACED (STAY OUT).
+    from core.ai_scorer import ai_scorer, hmm_classifier
+    adaptive_thresh, regime_name, regime_metrics = ai_scorer.evaluate_market_regime(
+        df_intraday=history if hasattr(history, "iloc") else pd.DataFrame(),
+        current_atr=current_atr,
+        is_macro_bullish=is_macro_bullish,
+        is_intraday_bullish=is_intraday_bullish
+    )
+
+    # Allow entries when Prob Score >= Adaptive Threshold (70-75 score threshold for 1-4 big wins or 5-10 scalps per session)
+    prob_approved = prob_score >= adaptive_thresh
+
     if is_macro_bullish:
         is_mtf_bullish_confluence = is_intraday_bullish and is_wolf_osc_bullish and prob_approved
-        is_mtf_short_confluence = (prob_score >= 100) and is_intraday_bearish and is_wolf_osc_bearish and prob_approved
+        is_mtf_short_confluence = (prob_score >= 85) and is_intraday_bearish and is_wolf_osc_bearish and prob_approved
     else:
         is_mtf_short_confluence = is_intraday_bearish and is_wolf_osc_bearish and prob_approved
-        is_mtf_bullish_confluence = (prob_score >= 100) and is_intraday_bullish and is_wolf_osc_bullish and prob_approved
+        is_mtf_bullish_confluence = (prob_score >= 85) and is_intraday_bullish and is_wolf_osc_bullish and prob_approved
 
-    print(f"--- Autonomous MTF Trade Quality Evaluation for {SYMBOL} ---")
-    print(f"Current Price: ${intraday_close:.2f}")
-    print(f"Macro Trend (1D HMA-100): {'BULLISH 🟢' if is_macro_bullish else 'BEARISH 🔴'}")
+    print(f"--- Autonomous Intraday Session Execution for {SYMBOL} ---")
+    print(f"Current Price: ${intraday_close:.2f} | Live Regime: {regime_name}")
     print(f"Fast Intraday Signal (5m HMA-20): {'BULLISH 🟢' if is_intraday_bullish else 'BEARISH 🔴'}")
-    print(f"Autonomous Trade Probability Score: {prob_score}/100 {'[HIGH PROBABILITY 🚀]' if prob_approved else '[LOW/MED PROBABILITY ⏸️]'}")
-    print(f"Active Probability Factors: {', '.join(prob_factors)}")
-    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else 'NO CONFLUENCE / HELD ⏸️'}")
+    print(f"Autonomous Trade Probability Score: {prob_score}/100 (Threshold: {adaptive_thresh}) {'[SESSION ENTRY APPROVED 🚀]' if prob_approved else '[WAITING FOR SETUP ⏸️]'}")
+    print(f"MTF Confluence Status: {'FULL CONFLUENCE BUY 🚀' if is_mtf_bullish_confluence else ('FULL CONFLUENCE SELL 📉' if is_mtf_short_confluence else 'NO CONFLUENCE / HOLD ⏸️')}")
     print(f"5m ATR Volatility: ${current_atr:.2f}")
     print(f"Account Equity: ${cash_balance:,.2f} | Dynamic Lot Size: {calculated_qty} lots")
     print(f"Actual Max Dollar Risk: ${actual_max_risk:.2f} (Trailing SL Distance: ${price_stop_distance:.2f} price points)")
