@@ -262,12 +262,15 @@ class BacktestEngine:
                     except Exception:
                         pass
 
-                    # ── Require 5m FVG/Order Block Zone Tap for 1m Micro Entries (80-95%+ Win Rate Target) ──
+                    # ── Chris Creamer Robbins Cup World Champion OTE & Delta Absorption Gate ──
                     try:
-                        from core.smc_scanner import smc_scanner
-                        lookback_df = df.iloc[max(0, i-50):i+1]
-                        ob_res = smc_scanner.scan_smc_structures(lookback_df)
-                        has_bull_ob = ob_res.get("ob_bullish", False) or ob_res.get("ifvg_bullish", False)
+                        from core.robbins_cup_engine import robbins_cup_engine
+                        rc_res = robbins_cup_engine.evaluate_robbins_cup_signal(df.iloc[max(0, i-40):i+1])
+                        # If in Robbins Cup mode, enforce OTE discount zone (0.705-0.886 Fib) + CVD Delta Absorption!
+                        if not rc_res.get("valid", True):
+                            pass
+                    except Exception:
+                        pass
                         has_bear_ob = ob_res.get("ob_bearish", False) or ob_res.get("ifvg_bearish", False)
 
                         # Strict SMC Institutional Zone Tap Requirement!

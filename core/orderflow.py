@@ -21,11 +21,18 @@ def calculate_order_flow_cvd(df: pd.DataFrame) -> pd.DataFrame:
       - Bar Delta = Buy Volume - Sell Volume
       - CVD = Cumulative Sum of Bar Delta
     """
-    df = df.copy()
-    close = df['c'] if 'c' in df.columns else df['close']
-    high = df['h'] if 'h' in df.columns else df['high']
-    low = df['l'] if 'l' in df.columns else df['low']
-    volume = df['v'] if 'v' in df.columns else df.get('volume', pd.Series(1000, index=df.index))
+    def _get_col(names):
+        for n in names:
+            if n in df.columns:
+                return df[n]
+        return None
+
+    close = _get_col(['Close', 'close', 'c'])
+    high = _get_col(['High', 'high', 'h'])
+    low = _get_col(['Low', 'low', 'l'])
+    volume = _get_col(['Volume', 'volume', 'v'])
+    if volume is None:
+        volume = pd.Series(1000.0, index=df.index)
 
     range_spread = (high - low).replace(0, 1e-6)
     buy_vol = volume * ((close - low) / range_spread)
@@ -48,20 +55,35 @@ def detect_delta_absorption(df: pd.DataFrame) -> Tuple[bool, bool, Dict[str, flo
     Returns:
       (is_bullish_absorption, is_bearish_absorption, metrics_dict)
     """
-    if len(df) < 5:
-        return False, False, {"cvd_delta": 0.0, "absorption_score": 0.0}
-
     df_of = calculate_order_flow_cvd(df)
     latest = df_of.iloc[-1]
     prev_4 = df_of.iloc[-5:-1]
 
-    close = latest['close']
+    def _get_val(sr, names, default_val=0.0):
+        for n in names:
+            if n in sr.index:
+                return sr[n]
+        return default_val
+
+    close = _get_val(latest, ['Close', 'close', 'c'])
     cvd_latest = latest['cvd']
     cvd_sma = latest['cvd_sma']
     bar_delta = latest['bar_delta']
 
-    recent_high = prev_4['high'].max()
-    recent_low = prev_4['low'].min()
+    high_col = None
+    for col in ['High', 'high', 'h']:
+        if col in prev_4.columns:
+            high_col = col
+            break
+
+    low_col = None
+    for col in ['Low', 'low', 'l']:
+        if col in prev_4.columns:
+            low_col = col
+            break
+
+    recent_high = prev_4[high_col].max() if high_col else close
+    recent_low = prev_4[low_col].min() if low_col else close
 
     # Bearish Absorption: Price testing high, but Delta is negative / declining
     is_bearish_absorption = (close >= recent_high * 0.9995) and (bar_delta < 0 or cvd_latest < cvd_sma)
