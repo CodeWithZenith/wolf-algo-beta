@@ -311,6 +311,20 @@ if __name__ == "__main__":
                 ]
                 if content.startswith("!") or any(k in cmd_lower for k in keywords):
                     print(f"📩 Processing Discord channel command: '{content}' from {message.author}")
+
+                    if any(k in cmd_lower for k in ["chart", "visual", "candles"]):
+                        try:
+                            from core.chart_generator import generate_chart_image_png
+                            png_path = await asyncio.to_thread(generate_chart_image_png, "GC=F", "Gold (XAUUSD)")
+                            if png_path and os.path.exists(png_path):
+                                await message.channel.send(
+                                    content="📈 **WOLF ALGO REAL-TIME TECHNICAL CHART**",
+                                    file=discord.File(png_path)
+                                )
+                                return
+                        except Exception as e:
+                            print(f"Chart image upload error: {e}")
+
                     res = await asyncio.to_thread(handle_discord_command, content)
                     if res and isinstance(res, str):
                         try:

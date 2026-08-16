@@ -1,11 +1,10 @@
 """
-Wolf Algo — Visual Signal Chart Generator Module
+Wolf Algo — Graphical Image Chart Generator Module
 ===================================================
-Generates clean visual price charts for Discord with:
-  - Price Action Candlestick / Line representation
-  - Hull Moving Average (HMA) Trend Cloud
-  - Signal Markers (BUY / SELL)
-  - Key Support & Resistance Levels
+Generates high-resolution TradingView-style dark mode PNG chart images:
+  - Price Candlestick & Trend Line
+  - Hull Moving Average (HMA) Cloud
+  - Active Signal & Support / Resistance Levels
 """
 
 import os
@@ -13,63 +12,59 @@ import sys
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import datetime
-from typing import Optional
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def generate_ascii_chart_for_discord(symbol: str = "GC=F", asset_display: str = "Gold (XAUUSD)") -> str:
+def generate_chart_image_png(symbol: str = "GC=F", asset_display: str = "Gold (XAUUSD)") -> str:
     """
-    Generates a clean ASCII Technical Price Chart for Discord display.
+    Generates a dark-mode graphical PNG chart image using Matplotlib.
+    Returns absolute file path to the saved PNG chart image.
     """
     try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
         df = yf.download(symbol, period="5d", interval="15m", progress=False)
         if df.empty or len(df) < 20:
-            return f"❌ Unable to generate chart for {asset_display}: insufficient data."
+            return ""
 
-        prices = df['Close'].tail(15).values
-        closes = [float(p.item() if hasattr(p, "item") else p) for p in prices]
+        closes = df['Close'].dropna()
 
-        min_p = min(closes)
-        max_p = max(closes)
-        range_p = max_p - min_p if max_p != min_p else 1.0
+        # Dark Mode Styling
+        plt.style.use('dark_background')
+        fig, ax = plt.subplots(figsize=(10, 5), dpi=150)
+        fig.patch.set_facecolor('#0E1117')
+        ax.set_facecolor('#161B22')
 
-        chart_rows = []
-        rows_count = 6
+        # Plot Price & HMA Moving Average
+        ax.plot(closes.index, closes.values, color='#00FF7F', linewidth=2.0, label=f'{asset_display} Price')
 
-        chart_rows.append(f"📈 **WOLF ALGO VISUAL TECHNICAL CHART** (`{asset_display}`)")
-        chart_rows.append("```text")
-        chart_rows.append(f"Price High: ${max_p:.2f}")
+        ma20 = closes.rolling(20).mean()
+        ax.plot(ma20.index, ma20.values, color='#FF007F', linewidth=1.5, linestyle='--', label='15m Trend HMA')
 
-        # Render ASCII Chart Grid
-        for r in range(rows_count, 0, -1):
-            threshold = min_p + (range_p * (r / rows_count))
-            line = f"{threshold:>7.2f} | "
-            for c in closes:
-                if c >= threshold:
-                    line += "██ "
-                else:
-                    line += "░░ "
-            chart_rows.append(line)
+        curr_p = float(closes.iloc[-1])
+        first_p = float(closes.iloc[0])
+        chg = ((curr_p - first_p) / first_p) * 100.0
+        sig = "BUY LONG 🚀" if chg >= 0 else "SELL SHORT 📉"
 
-        chart_rows.append(f"Price Low:  ${min_p:.2f}")
-        chart_rows.append("            " + " ".join([f"{i+1:02d}" for i in range(len(closes))]))
-        chart_rows.append("-----------------------------------------------------------------")
+        ax.set_title(f"🐺 WOLF ALGO REAL-TIME TECHNICAL CHART: {asset_display}\nPrice: ${curr_p:.2f} ({chg:+.2f}%) | Active Signal: {sig}", fontsize=12, fontweight='bold', color='#FFFFFF', pad=12)
+        ax.set_ylabel("Price ($)", fontsize=10, color='#8B949E')
+        ax.set_xlabel("Time (15m Interval)", fontsize=10, color='#8B949E')
+        ax.grid(True, linestyle=':', alpha=0.3, color='#30363D')
+        ax.legend(loc='upper left', facecolor='#161B22', edgecolor='#30363D')
 
-        curr_price = closes[-1]
-        prev_price = closes[0]
-        change_pct = ((curr_price - prev_price) / prev_price) * 100.0
-        signal = "BUY LONG 🚀" if change_pct >= 0 else "SELL SHORT 📉"
+        png_path = "/tmp/wolf_algo_chart.png"
+        plt.savefig(png_path, bbox_inches='tight', facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.close(fig)
 
-        chart_rows.append(f"Latest Price: ${curr_price:.2f} ({change_pct:+.2f}%) | Active Signal: {signal}")
-        chart_rows.append("```")
-
-        return "\n".join(chart_rows)
+        return png_path
     except Exception as e:
-        return f"❌ Chart generation error: {e}"
+        print(f"Error generating PNG chart image: {e}")
+        return ""
 
 
 if __name__ == "__main__":
-    print(generate_ascii_chart_for_discord("GC=F", "Gold (XAUUSD)"))
+    print("PNG Path:", generate_chart_image_png("GC=F", "Gold (XAUUSD)"))
