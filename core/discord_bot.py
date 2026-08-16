@@ -236,7 +236,31 @@ def handle_discord_command(command_str: str) -> str:
         except Exception as e:
             return f"❌ Failed to run index breadth scanner: {e}"
 
-    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth"
+    # 10. DAILY AI PERFORMANCE ANALYTICS REPORT COMMAND
+    elif any(k in cmd for k in ["report", "analytics", "stats", "performance"]):
+        try:
+            from core.analytics import analytics_engine
+            return analytics_engine.format_analytics_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run performance analytics report: {e}"
+
+    # 11. MULTI-TIMEFRAME SMC & LIQUIDITY SWEEP COMMAND
+    elif any(k in cmd for k in ["smc", "orderblock", "sweeps", "liquidity", "fvg", "ifvg"]):
+        try:
+            from core.smc_scanner import smc_scanner
+            return smc_scanner.format_smc_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run SMC scanner: {e}"
+
+    # 12. ECONOMIC NEWS CALENDAR COMMAND
+    elif any(k in cmd for k in ["news", "calendar", "events", "nfp", "cpi", "fomc"]):
+        try:
+            from core.news_calendar import news_calendar
+            return news_calendar.format_news_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run news calendar: {e}"
+
+    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news"
 
 
 if __name__ == "__main__":
@@ -261,7 +285,13 @@ if __name__ == "__main__":
                     return
 
                 cmd_lower = content.lower()
-                keywords = ["pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold", "pause", "resume", "scan", "equity", "gappers", "top", "breadth", "index", "indices", "nas100", "sp500", "dow30"]
+                keywords = [
+                    "pnl", "status", "buy", "sell", "closeall", "exit", "stop", "start", "hold",
+                    "pause", "resume", "scan", "equity", "gappers", "top", "breadth", "index",
+                    "indices", "nas100", "sp500", "dow30", "report", "analytics", "stats",
+                    "performance", "smc", "orderblock", "sweeps", "liquidity", "fvg", "ifvg",
+                    "news", "calendar", "events", "nfp", "cpi", "fomc"
+                ]
                 if content.startswith("!") or any(k in cmd_lower for k in keywords):
                     print(f"📩 Processing Discord channel command: '{content}' from {message.author}")
                     res = await asyncio.to_thread(handle_discord_command, content)
