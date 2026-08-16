@@ -10,7 +10,7 @@ indicator("Wolf Algo V6 — Robbins Cup Champion Edition", overlay=true, max_lab
 //   3. 0.886 Fib Absolute Line in the Sand Invalidation Guard
 //   4. Orderflow Cumulative Volume Delta (CVD) Absorption Signals
 //   5. 2-Loss Session Tilt Control Circuit Breaker
-//   6. Sensitivity Mode Selector: "Fast Scalper (5-10 signals/session)" vs "Deep OTE (1-2 A+ signals)"
+//   6. Fast Breakeven Trail Visual Box (+0.35 RR Breakeven Lock & +1.50 RR TP1)
 // ==============================================================================
 
 // ── CUSTOM TANH HYPERBOLIC FUNCTION FOR PINE V6 ──
@@ -116,11 +116,25 @@ fill(pHigh, pLow, color=inBullOte ? color.new(color.green, 90) : na, title="OTE 
 plotshape(buySignal, title="🚀 BUY SCALP", style=shape.triangleup, location=location.belowbar, color=color.rgb(46, 204, 113), size=size.normal)
 plotshape(sellSignal, title="📉 EXIT / SELL SCALP", style=shape.triangledown, location=location.abovebar, color=color.rgb(231, 76, 60), size=size.normal)
 
+// ── DYNAMIC BREAKEVEN LINE & TP1 VISUALIZATION ──
+var float buyEntryP = na
+var float buySlP = na
+var float buyBeP = na
+var float buyTp1P = na
+
 if buySignal
-    label.new(bar_index, low - (ta.atr(14) * 0.6), "🚀 BUY SCALP\nSL: $" + str.tostring(math.round(fib886, 2)), color=color.rgb(46, 204, 113), textcolor=color.white, style=label.style_label_up, size=size.small)
+    buyEntryP := close
+    buySlP := fib886
+    float riskD = math.max(buyEntryP - buySlP, ta.atr(14))
+    buyBeP := buyEntryP + (0.35 * riskD)
+    buyTp1P := buyEntryP + (1.50 * riskD)
+    label.new(bar_index, low - (ta.atr(14) * 0.6), "🚀 BUY SCALP\nEntry: $" + str.tostring(math.round(buyEntryP, 2)) + "\n🔒 BE Lock: $" + str.tostring(math.round(buyBeP, 2)) + "\n🎯 TP1: $" + str.tostring(math.round(buyTp1P, 2)), color=color.rgb(46, 204, 113), textcolor=color.white, style=label.style_label_up, size=size.small)
 
 if sellSignal
     label.new(bar_index, high + (ta.atr(14) * 0.6), "📉 EXIT / TAKE PROFIT", color=color.rgb(231, 76, 60), textcolor=color.white, style=label.style_label_down, size=size.small)
+
+plot(buyBeP, "🔒 Breakeven Lock Level (+0.35 RR)", color=color.rgb(0, 188, 212), linewidth=1, style=plot.style_linebr)
+plot(buyTp1P, "🎯 Take Profit 1 (+1.50 RR)", color=color.rgb(76, 175, 80), linewidth=1, style=plot.style_linebr)
 
 // ── LIVE ROBBINS CUP DASHBOARD TABLE ──
 var table dash = table.new(position.top_right, 2, 6, bgcolor=color.rgb(20, 24, 35, 10), border_width=1, border_color=color.rgb(44, 62, 80))
