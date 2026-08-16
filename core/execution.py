@@ -548,8 +548,17 @@ def run_strategy_cycle():
     # Allow entries when Prob Score >= Adaptive Threshold (70-75 score threshold for 1-4 big wins or 5-10 scalps per session)
     prob_approved = prob_score >= adaptive_thresh
 
-    if is_macro_bullish:
-        is_mtf_bullish_confluence = is_intraday_bullish and is_wolf_osc_bullish and prob_approved
+    # ── ROBBINS CUP 0.886 LINE IN THE SAND BOUNCE TRIGGER ──
+    # If price sweeps down near the 0.886 Fib Line in the Sand and starts turning bullish, approve instantly!
+    try:
+        from core.robbins_cup_engine import robbins_cup_engine
+        ote_status = robbins_cup_engine.check_ote_discount_zone(history if hasattr(history, "iloc") else pd.DataFrame())
+        is_line_in_sand_bounce = ote_status.get("in_ote_zone", False) and not ote_status.get("invalidated_below_886", False)
+    except Exception:
+        is_line_in_sand_bounce = False
+
+    if is_macro_bullish or is_line_in_sand_bounce:
+        is_mtf_bullish_confluence = (is_intraday_bullish or is_line_in_sand_bounce) and (prob_score >= 65)
         is_mtf_short_confluence = (prob_score >= 85) and is_intraday_bearish and is_wolf_osc_bearish and prob_approved
     else:
         is_mtf_short_confluence = is_intraday_bearish and is_wolf_osc_bearish and prob_approved
