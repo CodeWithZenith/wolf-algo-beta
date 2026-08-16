@@ -90,11 +90,11 @@ def is_in_news_blackout_window() -> bool:
 def is_in_core_session() -> bool:
     """
     Enforces user's exact preferred trading session windows (in EST / EDT):
-      - Evening Pre-Market Analysis: 6:00 PM EST – 7:00 PM EST (Pre-computes structure for 7pm move)
+      - Evening Pre-Market Analysis: 5:00 PM EST – 7:00 PM EST (Pre-computes PWH, PWL, PDH, PDL & Weekly OBs)
       - Window 1 (Main Execution):   7:00 PM EST – 12:00 PM (Noon) EST (Asian, London & NY Morning)
       - Mid-Day Structure Analysis:  12:00 PM EST – 2:30 PM EST (Continuous data scan & SMC mapping, 0 order entries)
       - Window 2 (Power Hour):       2:30 PM EST – 4:00 PM EST (Pre-Close Afternoon Execution)
-      - Off-Hours / Settlement:      4:00 PM EST – 6:00 PM EST (CME Rollover Window)
+      - Off-Hours / Settlement:      4:00 PM EST – 5:00 PM EST (CME Rollover Window)
     """
     if not SESSION_FILTER_ENABLED:
         return True
@@ -105,9 +105,9 @@ def is_in_core_session() -> bool:
     est_minute = now_utc.minute
     est_decimal_time = est_hour + (est_minute / 60.0)
 
-    # 6:00 PM EST (18.0) to 4:00 PM EST (16.0) is active analysis or trading!
-    # CME Settlement Window (4:00 PM - 6:00 PM EST / 16.0 - 18.0) is OFF.
-    if 16.0 <= est_decimal_time < 18.0:
+    # 5:00 PM EST (17.0) to 4:00 PM EST (16.0) is active analysis or trading!
+    # CME Settlement Window (4:00 PM - 5:00 PM EST / 16.0 - 17.0) is OFF.
+    if 16.0 <= est_decimal_time < 17.0:
         return False
 
     return True
@@ -570,16 +570,16 @@ def run_strategy_cycle():
         print("⏰ Outside Core Trading Session (CME Settlement Window 4pm-6pm EST). Holding state.")
         return
 
-    # 4. Analysis-Only Window Gate (6pm-7pm EST Pre-Market & 12pm-2:30pm EST Mid-Day Analysis)
+    # 4. Analysis-Only Window Gate (5pm-7pm EST Pre-Market & 12pm-2:30pm EST Mid-Day Analysis)
     now_utc = datetime.utcnow()
     est_hour = (now_utc.hour - 4) % 24
     est_dec = est_hour + (now_utc.minute / 60.0)
-    is_pre_market_analysis = 18.0 <= est_dec < 19.0
+    is_pre_market_analysis = 17.0 <= est_dec < 19.0
     is_midday_analysis = 12.0 <= est_dec < 14.5
 
     if (is_pre_market_analysis or is_midday_analysis) and not has_open_position:
-        window_label = "Pre-Market (6pm-7pm EST)" if is_pre_market_analysis else "Mid-Day Consolidation (12pm-2:30pm EST)"
-        print(f"🧠 {window_label} Structure Analysis Active: Ingesting live data & mapping SMC Order Blocks. Order execution paused until session open.")
+        window_label = "Pre-Market PWH/PWL Structure Analysis (5pm-7pm EST)" if is_pre_market_analysis else "Mid-Day Consolidation (12pm-2:30pm EST)"
+        print(f"🧠 {window_label} Active: Mapping Previous Week High/Low (PWH/PWL), Key Rejection Levels & SMC Order Blocks. Execution starts at 7:00 PM EST.")
         return
 
     # ── State Recovery & Fault Tolerance: Sync & Cleanup Orphan Orders ──
