@@ -28,18 +28,18 @@ SUPPORTED_ASSET_MAP = {
 
 
 def normalize_asset_key(raw_input: str) -> str:
-    """Normalizes user input to standard asset key (e.g. 'us30' -> 'US30', 'gold' -> 'XAUUSD')."""
+    """Normalizes user input to standard asset key (e.g. '!quant us30' -> 'US30')."""
     inp = raw_input.strip().upper()
-    if inp in ["GOLD", "XAUUSD", "XAUUSD.R", "XAU"]:
-        return "XAUUSD"
-    elif inp in ["US30", "DJ30", "WS30", "DOW", "DOW30"]:
+    if any(k in inp for k in ["US30", "DJ30", "WS30", "DOW", "DOW30"]):
         return "US30"
-    elif inp in ["NAS100", "US100", "NDX", "NASDAQ"]:
+    elif any(k in inp for k in ["NAS100", "US100", "NDX", "NASDAQ"]):
         return "NAS100"
-    elif inp in ["EURUSD", "EUR/USD", "EUR"]:
+    elif any(k in inp for k in ["EURUSD", "EUR/USD", "EUR"]):
         return "EURUSD"
-    elif inp in ["BTCUSD", "BTC", "BITCOIN", "BTCUSDT"]:
+    elif any(k in inp for k in ["BTCUSD", "BTC", "BITCOIN", "BTCUSDT"]):
         return "BTCUSD"
+    elif any(k in inp for k in ["GOLD", "XAUUSD", "XAUUSD.R", "XAU"]):
+        return "XAUUSD"
     return "XAUUSD"
 
 

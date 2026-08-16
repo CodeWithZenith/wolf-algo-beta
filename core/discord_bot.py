@@ -228,60 +228,23 @@ def handle_discord_command(command_str: str) -> str:
         except Exception as e:
             return f"❌ Failed to run equity scanner: {e}"
 
-    # 9. MAJOR INDEX BREADTH & MACRO REGIME SCANNER COMMAND
-    elif any(k in cmd for k in ["breadth", "index", "indices", "nas100", "sp500", "dow30"]):
-        try:
-            from core.index_scanner import format_macro_regime_for_discord
-            return format_macro_regime_for_discord()
-        except Exception as e:
-            return f"❌ Failed to run index breadth scanner: {e}"
-
-    # 10. DAILY AI PERFORMANCE ANALYTICS REPORT COMMAND
-    elif any(k in cmd for k in ["report", "analytics", "stats", "performance"]):
-        try:
-            from core.analytics import analytics_engine
-            return analytics_engine.format_analytics_report_for_discord()
-        except Exception as e:
-            return f"❌ Failed to run performance analytics report: {e}"
-
-    # 11. MULTI-TIMEFRAME SMC & LIQUIDITY SWEEP COMMAND
-    elif any(k in cmd for k in ["smc", "orderblock", "sweeps", "liquidity", "fvg", "ifvg"]):
-        try:
-            from core.smc_scanner import smc_scanner
-            return smc_scanner.format_smc_report_for_discord()
-        except Exception as e:
-            return f"❌ Failed to run SMC scanner: {e}"
-
-    # 12. ECONOMIC NEWS CALENDAR COMMAND
-    elif any(k in cmd for k in ["news", "calendar", "events", "nfp", "cpi", "fomc"]):
-        try:
-            from core.news_calendar import news_calendar
-            return news_calendar.format_news_report_for_discord()
-        except Exception as e:
-            return f"❌ Failed to run news calendar: {e}"
-
-    # 13. PROP FIRM CHALLENGE & EVALUATION SAFETY COMMAND
-    elif any(k in cmd for k in ["prop", "evaluation", "challenge", "ftmo", "funded"]):
-        try:
-            from core.prop_evaluator import prop_evaluator
-            return prop_evaluator.format_prop_report_for_discord()
-        except Exception as e:
-            return f"❌ Failed to run prop firm evaluator: {e}"
-
-    # 14. AUTOMATED VISUAL SIGNAL CHART GENERATOR COMMAND
-    elif any(k in cmd for k in ["chart", "visual", "candles"]):
-        return None
-
-    # 15. QUANT SUPERCHARGER ALPHAS COMMAND
+    # 9. QUANT SUPERCHARGER ALPHAS COMMAND
     elif any(k in cmd for k in ["quant", "alphas", "kakushadze", "cfi"]):
         try:
+            from core.multi_asset import normalize_asset_key, get_asset_parameters
+            asset_key = normalize_asset_key(command_str)
+            asset_info = get_asset_parameters(asset_key)
+            yahoo_sym = asset_info["yahoo_symbol"]
+            display_name = asset_info["name"]
+
             import yfinance as yf
             from core.quant_strategies import quant_engine
-            df = yf.download("GC=F", period="5d", interval="15m", progress=False)
+            df = yf.download(yahoo_sym, period="5d", interval="15m", progress=False)
             res = quant_engine.evaluate_quant_alpha_signal(df)
             return (
-                f"🧠 **WOLF ALGO QUANT SUPERCHARGER REPORT** (`Kakushadze 151 Alphas & CFI`)\n"
+                f"🧠 **WOLF ALGO QUANT SUPERCHARGER REPORT** (`{display_name}`)\n"
                 f"```text\n"
+                f"Target Instrument           | {asset_key} ({display_name})\n"
                 f"Quant Score (0-100)         | {res['quant_score']:>3d}/100\n"
                 f"Tanh Smoothed Momentum (Eq.477)| {res['tanh_signal']:>+7.3f}\n"
                 f"Pin Bar Reversal Pattern    | {res['pin_bar']}\n"
@@ -292,6 +255,14 @@ def handle_discord_command(command_str: str) -> str:
             )
         except Exception as e:
             return f"❌ Failed to run Quant Assessment: {e}"
+
+    # 10. MAJOR INDEX BREADTH & MACRO REGIME SCANNER COMMAND
+    elif any(k in cmd for k in ["breadth", "index", "indices"]):
+        try:
+            from core.index_scanner import format_macro_regime_for_discord
+            return format_macro_regime_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run index breadth scanner: {e}"
 
     return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart, !quant"
 
@@ -332,11 +303,17 @@ if __name__ == "__main__":
 
                     if any(k in cmd_lower for k in ["chart", "visual", "candles"]):
                         try:
+                            from core.multi_asset import normalize_asset_key, get_asset_parameters
+                            asset_key = normalize_asset_key(content)
+                            asset_info = get_asset_parameters(asset_key)
+                            yahoo_sym = asset_info["yahoo_symbol"]
+                            display_name = asset_info["name"]
+
                             from core.chart_generator import generate_chart_image_png
-                            png_path = await asyncio.to_thread(generate_chart_image_png, "GC=F", "Gold (XAUUSD)")
+                            png_path = await asyncio.to_thread(generate_chart_image_png, yahoo_sym, display_name)
                             if png_path and os.path.exists(png_path):
                                 await message.channel.send(
-                                    content="📈 **WOLF ALGO REAL-TIME TECHNICAL CHART**",
+                                    content=f"📈 **WOLF ALGO REAL-TIME TECHNICAL CHART** (`{display_name}`)",
                                     file=discord.File(png_path)
                                 )
                                 return
