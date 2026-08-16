@@ -300,7 +300,7 @@ def handle_discord_command(command_str: str) -> str:
     elif any(k in cmd for k in ["gex", "gamma", "callwall", "putwall", "flip"]):
         try:
             from core.robbins_cup_engine import robbins_cup_engine
-            return robbins_cup_engine.format_gex_report_for_discord()
+            return robbins_cup_engine.format_gex_report_for_discord(command_str)
         except Exception as e:
             return f"❌ Failed to run GEX report: {e}"
 

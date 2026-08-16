@@ -8,6 +8,7 @@ Implements Chris Creamer's (Robbins Cup World Champion) 4-Step Strategy:
   4. Deep OTE Fibonacci Discount Levels (0.500, 0.618, 0.705, 0.788, 0.886 Retracements)
   5. Orderflow Delta Forced Participation & 2-Loss Session Max Circuit Breaker
   6. 0.886 Fib Absolute Line in the Sand Invalidation
+  7. Multi-Asset GEX Support (Gold, NAS100, S&P500, DOW30, BTC-USD)
 """
 
 import numpy as np
@@ -78,7 +79,9 @@ class RobbinsCupEngine:
                 "put_wall": 0.0,
                 "gamma_flip_level": 0.0,
                 "pwh": 0.0,
-                "pwl": 0.0
+                "pwl": 0.0,
+                "gex_score": 50.0,
+                "price_above_gamma_flip": True
             }
 
         high_s = RobbinsCupEngine._get_series(df_weekly, ["high", "High", "h"])
@@ -107,40 +110,89 @@ class RobbinsCupEngine:
         }
 
     @staticmethod
-    def format_gex_report_for_discord(symbol: str = "GC=F") -> str:
+    def format_gex_report_for_discord(query_str: str = "") -> str:
         """
-        Formats a live Gamma Exposure (GEX) & Call/Put Wall report for Discord.
+        Formats a live Multi-Asset Gamma Exposure (GEX) & Call/Put Wall report for Discord:
+        Supports: Gold (GC=F), NAS100 (NQ=F), S&P500 (ES=F), DOW30 (YM=F), Bitcoin (BTC-USD).
         """
         try:
             import yfinance as yf
-            df = yf.download(symbol, period="1mo", interval="1d", progress=False)
-            gex_data = RobbinsCupEngine.run_premarket_gex_analysis(df)
+            from core.multi_asset import normalize_asset_key, get_asset_parameters
 
-            regime = gex_data["weekly_gex_regime"]
-            score = gex_data["gex_score"]
-            call_w = gex_data["call_wall"]
-            put_w = gex_data["put_wall"]
-            g_flip = gex_data["gamma_flip_level"]
-            pwh = gex_data["pwh"]
-            pwl = gex_data["pwl"]
-            above_flip = "ABOVE GAMMA FLIP 🟢 (BULLISH)" if gex_data["price_above_gamma_flip"] else "BELOW GAMMA FLIP 🔴 (BEARISH)"
+            assets = {
+                "GOLD": ("GC=F", "Gold Spot"),
+                "NAS100": ("NQ=F", "Nasdaq 100"),
+                "SP500": ("ES=F", "S&P 500"),
+                "DOW30": ("YM=F", "Dow Jones 30"),
+                "BTC": ("BTC-USD", "Bitcoin")
+            }
 
+            cmd_clean = query_str.strip().upper()
+            target_key = None
+
+            for k in ["NAS", "NQ", "NASDAQ"]:
+                if k in cmd_clean:
+                    target_key = "NAS100"
+            for k in ["SP", "ES", "SPX", "SP500"]:
+                if k in cmd_clean:
+                    target_key = "SP500"
+            for k in ["DOW", "YM", "DJI"]:
+                if k in cmd_clean:
+                    target_key = "DOW30"
+            for k in ["BTC", "BITCOIN", "CRYPTO"]:
+                if k in cmd_clean:
+                    target_key = "BTC"
+            for k in ["GOLD", "XAU", "GC"]:
+                if k in cmd_clean:
+                    target_key = "GOLD"
+
+            # If specific asset requested
+            if target_key:
+                sym, name = assets[target_key]
+                df = yf.download(sym, period="1mo", interval="1d", progress=False)
+                gex_data = RobbinsCupEngine.run_premarket_gex_analysis(df)
+                above_flip = "ABOVE GAMMA FLIP 🟢 (BULLISH)" if gex_data["price_above_gamma_flip"] else "BELOW GAMMA FLIP 🔴 (BEARISH)"
+
+                lines = [
+                    f"🏛️ **WOLF ALGO GAMMA EXPOSURE (GEX) REPORT** (`{name}`)",
+                    "```text",
+                    f"Metric / Level               | Value",
+                    f"-----------------------------------------------------------------",
+                    f"Weekly GEX Regime            | {gex_data['weekly_gex_regime']} ({gex_data['gex_score']:.1f}/100)",
+                    f"Weekly Call Wall (Resistance)| ${gex_data['call_wall']:,.2f}",
+                    f"Weekly Put Wall (Support)    | ${gex_data['put_wall']:,.2f}",
+                    f"Gamma Flip Zone (Line in Sand)| ${gex_data['gamma_flip_level']:,.2f}",
+                    f"Previous Week High (PWH)     | ${gex_data['pwh']:,.2f}",
+                    f"Previous Week Low (PWL)      | ${gex_data['pwl']:,.2f}",
+                    f"-----------------------------------------------------------------",
+                    f"GAMMA FLIP STATUS            | {above_flip}",
+                    "```",
+                    "⚡ **ROBBINS CUP GEX STATUS:** `ACTIVE & MONITORED LIVE 🟢`"
+                ]
+                return "\n".join(lines)
+
+            # Default: Multi-Asset GEX Master Dashboard across all 5 assets!
             lines = [
-                "🏛️ **WOLF ALGO GAMMA EXPOSURE (GEX) & LEVEL REPORT** (`Gold Spot`)",
+                "🏛️ **WOLF ALGO MULTI-ASSET GEX MASTER DASHBOARD**",
                 "```text",
-                f"Metric / Level               | Value",
-                f"-----------------------------------------------------------------",
-                f"Weekly GEX Regime            | {regime} ({score:.1f}/100)",
-                f"Weekly Call Wall (Resistance)| ${call_w:,.2f}",
-                f"Weekly Put Wall (Support)    | ${put_w:,.2f}",
-                f"Gamma Flip Zone (Line in Sand)| ${g_flip:,.2f}",
-                f"Previous Week High (PWH)     | ${pwh:,.2f}",
-                f"Previous Week Low (PWL)      | ${pwl:,.2f}",
-                f"-----------------------------------------------------------------",
-                f"GAMMA FLIP STATUS            | {above_flip}",
-                "```",
-                "⚡ **ROBBINS CUP GEX STATUS:** `ACTIVE & MONITORED LIVE 🟢`"
+                "Asset      | GEX Regime       | Score | Call Wall  | Put Wall   | Flip Status",
+                "---------------------------------------------------------------------------------"
             ]
+
+            for key, (sym, name) in assets.items():
+                try:
+                    df = yf.download(sym, period="1mo", interval="1d", progress=False)
+                    g = RobbinsCupEngine.run_premarket_gex_analysis(df)
+                    status_str = "ABOVE 🟢" if g["price_above_gamma_flip"] else "BELOW 🔴"
+                    reg_str = "POS_GEX" if "POSITIVE" in g["weekly_gex_regime"] else "NEG_GEX"
+                    lines.append(f"{name:<10} | {reg_str:<16} | {g['gex_score']:>5.1f} | ${g['call_wall']:>9.2f} | ${g['put_wall']:>9.2f} | {status_str}")
+                except Exception:
+                    lines.append(f"{name:<10} | N/A              |   0.0 | $     0.00 | $     0.00 | OFF 🔴")
+
+            lines.append("---------------------------------------------------------------------------------")
+            lines.append("```")
+            lines.append("⚡ **ROBBINS CUP MULTI-ASSET GEX STATUS:** `ACTIVE & MONITORED LIVE 🟢`\n*Type `!gex nas`, `!gex spx`, `!gex dow`, `!gex btc`, or `!gex gold` for individual asset deep-dives!*")
+
             return "\n".join(lines)
         except Exception as e:
             return f"❌ Failed to generate GEX report: {e}"
@@ -182,9 +234,9 @@ class RobbinsCupEngine:
                 "ote_level_886": 0.0
             }
 
-        swing_high = float(high_s.max())
-        swing_low = float(low_s.min())
-        curr_close = float(close_s.iloc[-1])
+        swing_high = float(np.ravel(high_s.values).max())
+        swing_low = float(np.ravel(low_s.values).min())
+        curr_close = float(np.ravel(close_s.values)[-1])
 
         range_dist = swing_high - swing_low
         if range_dist <= 0:
