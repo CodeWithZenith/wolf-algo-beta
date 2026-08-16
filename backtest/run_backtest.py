@@ -25,28 +25,29 @@ def main():
         description="Wolf Algo Backtest Runner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--symbol", default="SPY", help="Ticker symbol (e.g. SPY, GC=F, QQQ)")
-    parser.add_argument("--start", default="1993-01-01", help="Start date YYYY-MM-DD")
+    parser.add_argument("--symbol", default="GC=F", help="Ticker symbol (e.g. GC=F, SPY, QQQ)")
+    parser.add_argument("--interval", default="15m", choices=["1m", "5m", "15m", "1h", "1d"], help="Bar timeframe interval (default: 15m)")
+    parser.add_argument("--start", default="2024-01-01", help="Start date YYYY-MM-DD")
     parser.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today)")
-    parser.add_argument("--mode", default="swing_trader", choices=["scalper", "day_trader", "swing_trader"])
-    parser.add_argument("--equity", type=float, default=4955.18, help="Starting account equity (default: 4955.18)")
-    parser.add_argument("--daily-loss", type=float, default=149.00, help="Hard daily loss limit in $ (default: 149.00)")
-    parser.add_argument("--risk-pct", type=float, default=3.0, help="Risk per trade as %% of equity (default: 3.0)")
+    parser.add_argument("--mode", default="scalper", choices=["scalper", "day_trader", "swing_trader"])
+    parser.add_argument("--equity", type=float, default=5000.00, help="Starting account equity (default: 5000.00)")
+    parser.add_argument("--daily-loss", type=float, default=150.00, help="Hard daily loss limit in $ (default: 150.00)")
+    parser.add_argument("--risk-pct", type=float, default=2.5, help="Risk per trade as %% of equity (default: 2.5)")
     parser.add_argument("--exit", default="trailing", choices=["tp1", "tp2", "tp3", "trailing"], help="Exit strategy (default: trailing)")
-    parser.add_argument("--long-only", action="store_true", default=True, help="Long-only mode (default: True for equity/gold trends)")
-    parser.add_argument("--allow-short", action="store_true", help="Allow short trades")
+    parser.add_argument("--long-only", action="store_true", default=False, help="Long-only mode")
+    parser.add_argument("--allow-short", action="store_true", default=True, help="Allow short trades")
     parser.add_argument("--no-oscillator", action="store_true", help="Disable oscillator filter")
-    parser.add_argument("--soft-oscillator", action="store_true", help="Use oscillator as soft filter")
+    parser.add_argument("--soft-oscillator", action="store_true", default=True, help="Use oscillator as soft filter")
     parser.add_argument("--no-trend-filter", action="store_true", help="Disable trend alignment filter")
-    parser.add_argument("--trend-period", type=int, default=250, help="Trend filter HMA period (default: 250)")
-    parser.add_argument("--atr-mult", type=float, default=6.0, help="ATR trailing stop multiplier (default: 6.0)")
+    parser.add_argument("--trend-period", type=int, default=50, help="Trend filter HMA period (default: 50)")
+    parser.add_argument("--atr-mult", type=float, default=2.5, help="ATR trailing stop multiplier (default: 2.5)")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING"])
 
     args = parser.parse_args()
 
     config = load_config()
 
-    long_only_flag = not args.allow_short if args.allow_short else True
+    long_only_flag = args.long_only if args.long_only else (not args.allow_short)
 
     risk_cfg = RiskConfig(
         max_drawdown_pct=config.risk.max_drawdown_pct,
@@ -92,7 +93,7 @@ def main():
     print(f"{'='*60}\n")
 
     feed = YFinanceFeed(logger=logger)
-    bars = feed.get_bars(args.symbol, start=args.start, end=args.end, timeframe="1d")
+    bars = feed.get_bars(args.symbol, start=args.start, end=args.end, timeframe=args.interval)
 
     if bars.empty:
         print("❌ No data returned. Check symbol and date range.")
