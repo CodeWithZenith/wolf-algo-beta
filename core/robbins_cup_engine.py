@@ -5,7 +5,7 @@ Implements Chris Creamer's (Robbins Cup World Champion) 4-Step Strategy:
   1. Gamma Exposure (GEX) Volatility Regime Filter (Positive GEX Mean-Reversion vs Negative GEX Trend)
   2. Pre-Market Weekly GEX Analysis & Call/Put Wall Mapping (PWH, PWL, Call Wall, Put Wall, Gamma Flip Zone)
   3. Value Area & Auction Market Context (POC, VAH, VAL)
-  4. Deep OTE Discount Zones (0.705, 0.788, 0.886 Fibonacci Retracements)
+  4. Deep OTE Fibonacci Discount Levels (0.500, 0.618, 0.705, 0.788, 0.886 Retracements)
   5. Orderflow Delta Forced Participation & 2-Loss Session Max Circuit Breaker
   6. 0.886 Fib Absolute Line in the Sand Invalidation
 """
@@ -105,13 +105,23 @@ class RobbinsCupEngine:
     @staticmethod
     def check_ote_discount_zone(df: pd.DataFrame, lookback: int = 40) -> Dict[str, float]:
         """
-        Calculates Chris Creamer's Deep OTE Discount Retracement Levels:
+        Calculates Chris Creamer's Deep OTE Discount Fibonacci Retracement Levels:
+          - 0.500 Retracement (Equilibrium)
+          - 0.618 Retracement (Golden Pocket)
           - 0.705 Retracement (Sweet Spot)
-          - 0.788 Retracement (Deep Discount)
-          - 0.886 Retracement (Institutional Limit Line in the Sand)
+          - 0.788 Retracement (Deep Institutional Discount)
+          - 0.886 Retracement (Chris Creamer's Line in the Sand)
         """
         if len(df) < lookback:
-            return {"in_ote_zone": False, "invalidated_below_886": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
+            return {
+                "in_ote_zone": False,
+                "invalidated_below_886": False,
+                "ote_level_500": 0.0,
+                "ote_level_618": 0.0,
+                "ote_level_705": 0.0,
+                "ote_level_788": 0.0,
+                "ote_level_886": 0.0
+            }
 
         lookback_df = df.iloc[-lookback:]
         high_s = RobbinsCupEngine._get_series(lookback_df, ["high", "High", "h"])
@@ -119,7 +129,15 @@ class RobbinsCupEngine:
         close_s = RobbinsCupEngine._get_series(lookback_df, ["close", "Close", "c"])
 
         if high_s is None or low_s is None or close_s is None:
-            return {"in_ote_zone": False, "invalidated_below_886": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
+            return {
+                "in_ote_zone": False,
+                "invalidated_below_886": False,
+                "ote_level_500": 0.0,
+                "ote_level_618": 0.0,
+                "ote_level_705": 0.0,
+                "ote_level_788": 0.0,
+                "ote_level_886": 0.0
+            }
 
         swing_high = float(high_s.max())
         swing_low = float(low_s.min())
@@ -127,8 +145,18 @@ class RobbinsCupEngine:
 
         range_dist = swing_high - swing_low
         if range_dist <= 0:
-            return {"in_ote_zone": False, "invalidated_below_886": False, "ote_level_705": 0.0, "ote_level_788": 0.0, "ote_level_886": 0.0}
+            return {
+                "in_ote_zone": False,
+                "invalidated_below_886": False,
+                "ote_level_500": 0.0,
+                "ote_level_618": 0.0,
+                "ote_level_705": 0.0,
+                "ote_level_788": 0.0,
+                "ote_level_886": 0.0
+            }
 
+        fib_500 = swing_high - (0.500 * range_dist)
+        fib_618 = swing_high - (0.618 * range_dist)
         fib_705 = swing_high - (0.705 * range_dist)
         fib_788 = swing_high - (0.788 * range_dist)
         fib_886 = swing_high - (0.886 * range_dist)
@@ -142,6 +170,8 @@ class RobbinsCupEngine:
             "invalidated_below_886": invalidated_below_886,
             "swing_high": round(swing_high, 2),
             "swing_low": round(swing_low, 2),
+            "ote_level_500": round(fib_500, 2),
+            "ote_level_618": round(fib_618, 2),
             "ote_level_705": round(fib_705, 2),
             "ote_level_788": round(fib_788, 2),
             "ote_level_886": round(fib_886, 2)
