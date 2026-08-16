@@ -3,10 +3,11 @@ Wolf Algo — Robbins Cup World Champion Order Flow & OTE Engine
 ================================================================
 Implements Chris Creamer's (Robbins Cup World Champion) 4-Step Strategy:
   1. Gamma Exposure (GEX) Volatility Regime Filter (Positive GEX Mean-Reversion vs Negative GEX Trend)
-  2. Value Area & Auction Market Context (POC, VAH, VAL)
-  3. Deep OTE Discount Zones (0.705, 0.788, 0.886 Fibonacci Retracements)
-  4. Orderflow Delta Forced Participation & 2-Loss Session Max Circuit Breaker
-  5. 0.886 Fib Absolute Line in the Sand Invalidation
+  2. Pre-Market Weekly GEX Analysis & Call/Put Wall Mapping (PWH, PWL, Call Wall, Put Wall, Gamma Flip Zone)
+  3. Value Area & Auction Market Context (POC, VAH, VAL)
+  4. Deep OTE Discount Zones (0.705, 0.788, 0.886 Fibonacci Retracements)
+  5. Orderflow Delta Forced Participation & 2-Loss Session Max Circuit Breaker
+  6. 0.886 Fib Absolute Line in the Sand Invalidation
 """
 
 import numpy as np
@@ -56,6 +57,49 @@ class RobbinsCupEngine:
             "gex_regime": "POSITIVE_GAMMA" if is_positive_gex else "NEGATIVE_GAMMA",
             "is_mean_reversion": is_positive_gex,
             "gex_score": round(float(gex_score), 2)
+        }
+
+    @staticmethod
+    def run_premarket_gex_analysis(df_weekly: pd.DataFrame) -> Dict[str, any]:
+        """
+        Pre-Market Structure & Weekly GEX Mapping (Runs 5:00 PM - 7:00 PM EST):
+          - Analyzes Previous Week High (PWH) & Previous Week Low (PWL)
+          - Maps Weekly Call Wall (Resistance) & Put Wall (Support)
+          - Computes Gamma Flip Zone (Line in the Sand)
+        """
+        if df_weekly is None or len(df_weekly) < 5:
+            return {
+                "weekly_gex_regime": "POSITIVE_GAMMA",
+                "call_wall": 0.0,
+                "put_wall": 0.0,
+                "gamma_flip_level": 0.0,
+                "pwh": 0.0,
+                "pwl": 0.0
+            }
+
+        high_s = RobbinsCupEngine._get_series(df_weekly, ["high", "High", "h"])
+        low_s = RobbinsCupEngine._get_series(df_weekly, ["low", "Low", "l"])
+        close_s = RobbinsCupEngine._get_series(df_weekly, ["close", "Close", "c"])
+
+        pwh = float(high_s.max()) if high_s is not None else 0.0
+        pwl = float(low_s.min()) if low_s is not None else 0.0
+        curr_p = float(close_s.iloc[-1]) if close_s is not None else 0.0
+
+        call_wall = pwh
+        put_wall = pwl
+        gamma_flip = round((call_wall + put_wall) / 2.0, 2)
+
+        gex_info = RobbinsCupEngine.calculate_gex_volatility_regime(df_weekly)
+
+        return {
+            "weekly_gex_regime": gex_info["gex_regime"],
+            "gex_score": gex_info["gex_score"],
+            "call_wall": round(call_wall, 2),
+            "put_wall": round(put_wall, 2),
+            "gamma_flip_level": gamma_flip,
+            "pwh": round(pwh, 2),
+            "pwl": round(pwl, 2),
+            "price_above_gamma_flip": curr_p >= gamma_flip
         }
 
     @staticmethod
@@ -109,7 +153,6 @@ class RobbinsCupEngine:
         Full 4-Step Robbins Cup Strategy Signal Evaluator.
         Enforces 2-loss session tilt circuit breaker and 0.886 Fib invalidation!
         """
-        # Step 0: 2-Loss Session Tilt Control Circuit Breaker
         if consecutive_losses >= 2:
             return {
                 "valid": False,
