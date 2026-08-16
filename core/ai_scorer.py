@@ -65,11 +65,24 @@ class AIMarketRegimeScorer:
         elif volatility_ratio < 0.7:
             regime_name += " [COMPRESSED SQUEEZE 🔒]"
 
+        # Quant Supercharger Kakushadze / CFI Signal Check
+        try:
+            from core.quant_strategies import quant_engine
+            quant_res = quant_engine.evaluate_quant_alpha_signal(df_intraday)
+            quant_score = quant_res.get("quant_score", 50)
+            if quant_score >= 70:
+                adaptive_threshold -= 3.0  # High quant conviction lowers entry barrier
+            elif quant_score <= 30:
+                adaptive_threshold += 3.0
+        except Exception:
+            quant_score = 50
+
         adaptive_threshold = max(70.0, min(90.0, adaptive_threshold))
 
         metrics = {
             "adaptive_threshold": adaptive_threshold,
             "volatility_ratio": round(volatility_ratio, 2),
+            "quant_score": quant_score,
             "hour_utc": hour_utc,
             "is_prime_session": is_ny_london_overlap
         }

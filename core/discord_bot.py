@@ -272,7 +272,28 @@ def handle_discord_command(command_str: str) -> str:
     elif any(k in cmd for k in ["chart", "visual", "candles"]):
         return None
 
-    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart"
+    # 15. QUANT SUPERCHARGER ALPHAS COMMAND
+    elif any(k in cmd for k in ["quant", "alphas", "kakushadze", "cfi"]):
+        try:
+            import yfinance as yf
+            from core.quant_strategies import quant_engine
+            df = yf.download("GC=F", period="5d", interval="15m", progress=False)
+            res = quant_engine.evaluate_quant_alpha_signal(df)
+            return (
+                f"🧠 **WOLF ALGO QUANT SUPERCHARGER REPORT** (`Kakushadze 151 Alphas & CFI`)\n"
+                f"```text\n"
+                f"Quant Score (0-100)         | {res['quant_score']:>3d}/100\n"
+                f"Tanh Smoothed Momentum (Eq.477)| {res['tanh_signal']:>+7.3f}\n"
+                f"Pin Bar Reversal Pattern    | {res['pin_bar']}\n"
+                f"-----------------------------------------------------------------\n"
+                f"QUANT CONFLUENCE VERDICT    | {res['verdict']}\n"
+                f"```\n"
+                f"⚡ **INSTITUTIONAL QUANT STATUS:** `ACTIVE (SUPERCHARGED 🟢)`"
+            )
+        except Exception as e:
+            return f"❌ Failed to run Quant Assessment: {e}"
+
+    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart, !quant"
 
 
 if __name__ == "__main__":
@@ -303,7 +324,8 @@ if __name__ == "__main__":
                     "indices", "nas100", "sp500", "dow30", "report", "analytics", "stats",
                     "performance", "smc", "orderblock", "sweeps", "liquidity", "fvg", "ifvg",
                     "news", "calendar", "events", "nfp", "cpi", "fomc", "prop", "evaluation",
-                    "challenge", "ftmo", "funded", "chart", "visual", "candles"
+                    "challenge", "ftmo", "funded", "chart", "visual", "candles", "quant",
+                    "alphas", "kakushadze", "cfi"
                 ]
                 if content.startswith("!") or any(k in cmd_lower for k in keywords):
                     print(f"📩 Processing Discord channel command: '{content}' from {message.author}")
