@@ -658,6 +658,24 @@ def run_strategy_cycle():
         print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
         send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
+        # Record to Persistent SQLite Trade Database
+        try:
+            from data.trade_db import trade_db
+            trade_db.record_trade_entry(
+                account_id=str(os.getenv("TL_ACCOUNT_ID", "2408565")),
+                symbol=SYMBOL,
+                side="BUY",
+                qty=float(calculated_qty),
+                entry_price=float(intraday_close),
+                sl_price=float(stop_loss_price),
+                tp1_price=float(intraday_close + price_stop_distance),
+                tp2_price=float(take_profit_price),
+                hmm_regime="BULLISH TREND 🚀",
+                spread=0.30
+            )
+        except Exception as e:
+            print(f"DB Record note: {e}")
+
     elif is_mtf_short_confluence and not has_open_position:
         stop_loss_price = round(intraday_close + price_stop_distance, 2)
         take_profit_price = round(intraday_close - max(150.0, price_stop_distance * 15.0), 2)

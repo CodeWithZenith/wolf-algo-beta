@@ -64,7 +64,14 @@ class ConstitutionalGuardrails:
         if gain_pct < 10.0:
             return False, f"Ross Cameron Guardrail 2 Failed: Gain {gain_pct:.1f}% below +10.0% minimum."
 
-        return True, "EQUITIES ROSS-5 GUARDRAILS PASSED 🎯"
+    @staticmethod
+    def validate_adaptive_spread(current_spread: float, median_spread: float = 0.30) -> Tuple[bool, str]:
+        """Validates Adaptive Spread & Slippage Spike Guardrail."""
+        if current_spread > 1.50:
+            return False, f"IMMUTABLE SPREAD GUARDRAIL VIOLATION: Current spread (${current_spread:.2f}) exceeds absolute max spread cap ($1.50)."
+        if median_spread > 0 and (current_spread / median_spread) > 2.5:
+            return False, f"IMMUTABLE SPREAD GUARDRAIL VIOLATION: Current spread (${current_spread:.2f}) expanded >2.5x above rolling median spread (${median_spread:.2f})."
+        return True, "ADAPTIVE SPREAD GUARDRAIL PASSED 🛡️"
 
 
 class RiskManager:
