@@ -296,7 +296,15 @@ def handle_discord_command(command_str: str) -> str:
         except Exception as e:
             return f"❌ Failed to run prop evaluation report: {e}"
 
-    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart, !quant"
+    # 15. GAMMA EXPOSURE (GEX) & LEVEL REPORT COMMAND
+    elif any(k in cmd for k in ["gex", "gamma", "callwall", "putwall", "flip"]):
+        try:
+            from core.robbins_cup_engine import robbins_cup_engine
+            return robbins_cup_engine.format_gex_report_for_discord()
+        except Exception as e:
+            return f"❌ Failed to run GEX report: {e}"
+
+    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart, !quant, !gex"
 
 
 if __name__ == "__main__":
@@ -328,7 +336,7 @@ if __name__ == "__main__":
                     "performance", "smc", "orderblock", "sweeps", "liquidity", "fvg", "ifvg",
                     "news", "calendar", "events", "nfp", "cpi", "fomc", "prop", "evaluation",
                     "challenge", "ftmo", "funded", "chart", "visual", "candles", "quant",
-                    "alphas", "kakushadze", "cfi"
+                    "alphas", "kakushadze", "cfi", "gex", "gamma", "callwall", "putwall", "flip"
                 ]
                 if content.startswith("!") or any(k in cmd_lower for k in keywords):
                     print(f"📩 Processing Discord channel command: '{content}' from {message.author}")

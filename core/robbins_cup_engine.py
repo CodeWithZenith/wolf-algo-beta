@@ -34,9 +34,6 @@ class RobbinsCupEngine:
           - Positive Gamma (GEX > 0): Dealers sell rallies & buy dips -> Mean Reversion / Scalp Regime
           - Negative Gamma (GEX < 0): Dealers buy rallies & sell dips -> Volatility Expansion / Breakout Regime
         """
-        if len(df) < 20:
-            return {"gex_regime": "POSITIVE_GAMMA", "is_mean_reversion": True, "gex_score": 50.0}
-
         close = RobbinsCupEngine._get_series(df, ["close", "Close", "c"])
         high = RobbinsCupEngine._get_series(df, ["high", "High", "h"])
         low = RobbinsCupEngine._get_series(df, ["low", "Low", "l"])
@@ -44,11 +41,18 @@ class RobbinsCupEngine:
         if close is None or high is None or low is None:
             return {"gex_regime": "POSITIVE_GAMMA", "is_mean_reversion": True, "gex_score": 50.0}
 
-        returns = close.pct_change().dropna()
-        realized_vol = returns.std() * np.sqrt(252)
+        c_arr = np.ravel(close.values).astype(float)
+        h_arr = np.ravel(high.values).astype(float)
+        l_arr = np.ravel(low.values).astype(float)
 
-        range_spread = (high / low.replace(0, 1e-6)).apply(lambda x: max(x, 1e-6))
-        parkinson_vol = np.sqrt((1.0 / (4.0 * np.log(2.0))) * (np.log(range_spread) ** 2)).mean()
+        if len(c_arr) < 20:
+            return {"gex_regime": "POSITIVE_GAMMA", "is_mean_reversion": True, "gex_score": 50.0}
+
+        returns = np.diff(c_arr) / c_arr[:-1]
+        realized_vol = float(np.std(returns) * np.sqrt(252))
+
+        spreads = np.maximum(h_arr / np.maximum(l_arr, 1e-6), 1.0)
+        parkinson_vol = float(np.sqrt((1.0 / (4.0 * np.log(2.0))) * np.mean(np.log(spreads) ** 2)))
 
         gex_score = 100.0 - min(100.0, max(0.0, (parkinson_vol / (realized_vol + 1e-6)) * 50.0))
         is_positive_gex = gex_score >= 50.0
@@ -56,7 +60,7 @@ class RobbinsCupEngine:
         return {
             "gex_regime": "POSITIVE_GAMMA" if is_positive_gex else "NEGATIVE_GAMMA",
             "is_mean_reversion": is_positive_gex,
-            "gex_score": round(float(gex_score), 2)
+            "gex_score": round(gex_score, 2)
         }
 
     @staticmethod
@@ -81,9 +85,9 @@ class RobbinsCupEngine:
         low_s = RobbinsCupEngine._get_series(df_weekly, ["low", "Low", "l"])
         close_s = RobbinsCupEngine._get_series(df_weekly, ["close", "Close", "c"])
 
-        pwh = float(high_s.max()) if high_s is not None else 0.0
-        pwl = float(low_s.min()) if low_s is not None else 0.0
-        curr_p = float(close_s.iloc[-1]) if close_s is not None else 0.0
+        pwh = float(np.ravel(high_s.values).max()) if high_s is not None else 0.0
+        pwl = float(np.ravel(low_s.values).min()) if low_s is not None else 0.0
+        curr_p = float(np.ravel(close_s.values)[-1]) if close_s is not None else 0.0
 
         call_wall = pwh
         put_wall = pwl
@@ -101,6 +105,45 @@ class RobbinsCupEngine:
             "pwl": round(pwl, 2),
             "price_above_gamma_flip": curr_p >= gamma_flip
         }
+
+    @staticmethod
+    def format_gex_report_for_discord(symbol: str = "GC=F") -> str:
+        """
+        Formats a live Gamma Exposure (GEX) & Call/Put Wall report for Discord.
+        """
+        try:
+            import yfinance as yf
+            df = yf.download(symbol, period="1mo", interval="1d", progress=False)
+            gex_data = RobbinsCupEngine.run_premarket_gex_analysis(df)
+
+            regime = gex_data["weekly_gex_regime"]
+            score = gex_data["gex_score"]
+            call_w = gex_data["call_wall"]
+            put_w = gex_data["put_wall"]
+            g_flip = gex_data["gamma_flip_level"]
+            pwh = gex_data["pwh"]
+            pwl = gex_data["pwl"]
+            above_flip = "ABOVE GAMMA FLIP 🟢 (BULLISH)" if gex_data["price_above_gamma_flip"] else "BELOW GAMMA FLIP 🔴 (BEARISH)"
+
+            lines = [
+                "🏛️ **WOLF ALGO GAMMA EXPOSURE (GEX) & LEVEL REPORT** (`Gold Spot`)",
+                "```text",
+                f"Metric / Level               | Value",
+                f"-----------------------------------------------------------------",
+                f"Weekly GEX Regime            | {regime} ({score:.1f}/100)",
+                f"Weekly Call Wall (Resistance)| ${call_w:,.2f}",
+                f"Weekly Put Wall (Support)    | ${put_w:,.2f}",
+                f"Gamma Flip Zone (Line in Sand)| ${g_flip:,.2f}",
+                f"Previous Week High (PWH)     | ${pwh:,.2f}",
+                f"Previous Week Low (PWL)      | ${pwl:,.2f}",
+                f"-----------------------------------------------------------------",
+                f"GAMMA FLIP STATUS            | {above_flip}",
+                "```",
+                "⚡ **ROBBINS CUP GEX STATUS:** `ACTIVE & MONITORED LIVE 🟢`"
+            ]
+            return "\n".join(lines)
+        except Exception as e:
+            return f"❌ Failed to generate GEX report: {e}"
 
     @staticmethod
     def check_ote_discount_zone(df: pd.DataFrame, lookback: int = 40) -> Dict[str, float]:
