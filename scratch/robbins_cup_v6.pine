@@ -10,7 +10,7 @@ indicator("Wolf Algo V6 — Robbins Cup Champion Edition", overlay=true, max_lab
 //   3. 0.886 Fib Absolute Line in the Sand Invalidation Guard
 //   4. Orderflow Cumulative Volume Delta (CVD) Absorption Signals
 //   5. 2-Loss Session Tilt Control Circuit Breaker
-//   6. Clean BUY (Long) & SELL (Short) Signals (No Duplicate Shapes!)
+//   6. Sensitivity Mode Selector: "Fast Scalper (5-10 signals/session)" vs "Deep OTE (1-2 A+ signals)"
 // ==============================================================================
 
 // ── CUSTOM TANH HYPERBOLIC FUNCTION FOR PINE V6 ──
@@ -20,26 +20,24 @@ custom_tanh(float x) =>
     (e2x - 1.0) / (e2x + 1.0)
 
 // ── INPUT PARAMETERS ──
+grp_preset    = "🎛️ Scalp Mode & Signal Sensitivity"
+signalMode    = input.string("Fast Scalper (5-10 Signals/Session)", "Signal Mode", options=["Fast Scalper (5-10 Signals/Session)", "Deep OTE A+ Setup (1-2 Signals/Session)"], group=grp_preset)
+
 grp_robbins   = "🏆 Chris Creamer Robbins Cup Settings"
-swingLookback = input.int(30, "Swing High/Low Lookback Bars", minval=10, maxval=200, group=grp_robbins)
+swingLookback = input.int(20, "Swing High/Low Lookback Bars", minval=5, maxval=200, group=grp_robbins)
 useGexFilter  = input.bool(true, "Enable GEX Volatility Regime Filter", group=grp_robbins)
-useOteFilter  = input.bool(true, "Enable Deep OTE Zone (0.705-0.886 Fibs)", group=grp_robbins)
-useCvdFilter  = input.bool(false, "Strict Volume Delta Absorption (Optional)", group=grp_robbins)
 
 grp_quant     = "⚡ Wolf Algo V1 & Scalper Settings"
-useWickFilter = input.bool(false, "Require 35% Lower Wick (Optional)", group=grp_quant)
-useEmaFilter  = input.bool(false, "Require 200 EMA Trend Alignment (Optional)", group=grp_quant)
-emaPeriod     = input.int(200, "Macro EMA Period", minval=20, group=grp_quant)
+emaPeriod     = input.int(50, "Trend Filter EMA Period", minval=10, group=grp_quant)
+useEmaFilter  = input.bool(true, "Require EMA Trend Alignment", group=grp_quant)
 
 grp_table     = "📊 Visual Dashboard"
 showDashboard = input.bool(true, "Show Live Robbins Cup GEX Dashboard", group=grp_table)
 
 // ── STEP 1: MACRO TREND & EMA FILTER ──
-ema200 = ta.ema(close, emaPeriod)
-isBullishEma  = close >= ema200
-isBearishEma  = close <= ema200
-emaCrossUnder = ta.crossunder(close, ema200)
-emaCrossOver  = ta.crossover(close, ema200)
+emaTrend = ta.ema(close, emaPeriod)
+isBullishEma  = close >= emaTrend
+isBearishEma  = close <= emaTrend
 
 // ── STEP 2: DEEP OTE DISCOUNT RETRACEMENT CALCULATIONS ──
 swingHigh = ta.highest(high, swingLookback)
@@ -53,12 +51,11 @@ fib788 = swingHigh - (0.788 * rangeDist)
 fib886 = swingHigh - (0.886 * rangeDist)
 
 // Bullish OTE Discount Zone (0.705 to 0.886 Fib)
-inBullOte = (close >= fib886) and (close <= fib705)
-// Bearish OTE Premium Zone (0.114 to 0.295 Fib)
-fib114 = swingLow + (0.886 * rangeDist)
-fib295 = swingLow + (0.705 * rangeDist)
-inBearOte = (close <= fib114) and (close >= fib295)
+inDeepOte = (close >= fib886) and (close <= fib705)
+// Fast Scalper Zone (0.500 to 0.886 Fib)
+inFastOte = (close >= fib886) and (close <= fib500)
 
+inBullOte = (signalMode == "Deep OTE A+ Setup (1-2 Signals/Session)") ? inDeepOte : inFastOte
 is886Invalidated = close < fib886
 
 // ── STEP 3: GEX VOLATILITY REGIME ESTIMATOR ──
@@ -68,37 +65,31 @@ parkinsonVolAvg = ta.sma(parkinsonVol, 20)
 
 gexRatio = parkinsonVolAvg / math.max(realizedVol, 1e-6)
 gexScore = 100.0 - math.min(100.0, math.max(0.0, gexRatio * 50.0))
-isPositiveGex = gexScore >= 50.0
+isPositiveGex = gexScore >= 40.0
 
 // ── STEP 4: ORDERFLOW CUMULATIVE VOLUME DELTA (CVD) ABSORPTION ──
 candleBody = math.abs(close - open)
 lowerWick  = math.min(open, close) - low
 upperWick  = high - math.max(open, close)
 
-volAvg = ta.sma(volume, 20)
-isVolumeSurge = volume >= (volAvg * 1.10)
-isBullishAbsorption = (lowerWick >= (candleBody * 0.20)) and (close >= open)
-isBearishAbsorption = (upperWick >= (candleBody * 0.20)) and (close <= open)
+isBullishAbsorption = (lowerWick >= (candleBody * 0.15)) or (close > open)
+isBearishAbsorption = (upperWick >= (candleBody * 0.15)) or (close < open)
 
 // ── STEP 5: WOLF OSCILLATOR TANH MOMENTUM & CONFLUENCE ──
 rawOsc = ta.rsi(close, 14) - 50.0
 tanhMomentum = custom_tanh(rawOsc / 10.0)
-isOscBullish = tanhMomentum > 0.05
-isOscBearish = tanhMomentum < -0.05
+isOscBullish = tanhMomentum > -0.10
+isOscBearish = tanhMomentum < 0.10
 
-// ── STEP 6: CLEAN BUY (LONG) & SELL (SHORT) SIGNALS ──
-validBullOte  = not useOteFilter or inBullOte
-validBearOte  = not useOteFilter or inBearOte
+// ── STEP 6: UNIFIED ROBBINS CUP BUY & SELL SIGNALS ──
 validGex      = not useGexFilter or isPositiveGex
-validBullCvd  = not useCvdFilter or isBullishAbsorption
-validBearCvd  = not useCvdFilter or isBearishAbsorption
-validBullWick = not useWickFilter or (lowerWick >= (candleBody * 0.20))
-validBearWick = not useWickFilter or (upperWick >= (candleBody * 0.20))
+validEmaBull  = not useEmaFilter or isBullishEma
+validEmaBear  = not useEmaFilter or isBearishEma
 
-rawBuy  = validBullOte and validGex and validBullCvd and validBullWick and isOscBullish and not is886Invalidated
-rawSell = validBearOte and validGex and validBearCvd and validBearWick and isOscBearish
+rawBuy  = inBullOte and validGex and validEmaBull and isOscBullish and not is886Invalidated
+rawSell = is886Invalidated or (ta.crossunder(close, fib705) and not isBullishEma)
 
-// Prevent repeating consecutive duplicate signals
+// State Latching (No Duplicate Cluster Arrows!)
 var int lastSignal = 0  // +1 = Buy, -1 = Sell
 buySignal  = rawBuy and (lastSignal != 1)
 sellSignal = rawSell and (lastSignal != -1)
@@ -109,27 +100,27 @@ if sellSignal
     lastSignal := -1
 
 // ── VISUAL PLOTS & CHARTS ──
-plot(ema200, "200 EMA", color=color.rgb(255, 152, 0), linewidth=2)
+plot(emaTrend, "Trend EMA", color=color.rgb(255, 152, 0), linewidth=2)
 pHigh = plot(swingHigh, "Swing High", color=color.new(color.red, 50), linewidth=1, style=plot.style_stepline)
 pLow  = plot(swingLow, "Swing Low", color=color.new(color.green, 50), linewidth=1, style=plot.style_stepline)
 
 // OTE Level Lines
-plot(inBullOte ? fib705 : na, "OTE 0.705 Sweet Spot", color=color.rgb(76, 175, 80), linewidth=1, style=plot.style_linebr)
-plot(inBullOte ? fib788 : na, "OTE 0.788 Deep Discount", color=color.rgb(33, 150, 243), linewidth=1, style=plot.style_linebr)
+plot(fib705, "OTE 0.705 Sweet Spot", color=color.rgb(76, 175, 80), linewidth=1, style=plot.style_linebr)
+plot(fib788, "OTE 0.788 Deep Discount", color=color.rgb(33, 150, 243), linewidth=1, style=plot.style_linebr)
 plot(fib886, "0.886 Line in Sand", color=color.rgb(244, 67, 54), linewidth=2, style=plot.style_stepline)
 
 // Highlight OTE Discount Zone on Chart
-fill(pHigh, pLow, color=inBullOte ? color.new(color.green, 92) : na, title="OTE Discount Zone Fill")
+fill(pHigh, pLow, color=inBullOte ? color.new(color.green, 90) : na, title="OTE Discount Zone Fill")
 
-// Signal Shapes & Labels (Clean Triangle Shapes Below/Above Bar)
-plotshape(buySignal, title="🚀 BUY LONG SCALP", style=shape.triangleup, location=location.belowbar, color=color.rgb(46, 204, 113), size=size.normal)
-plotshape(sellSignal, title="📉 SELL SHORT SCALP", style=shape.triangledown, location=location.abovebar, color=color.rgb(231, 76, 60), size=size.normal)
+// Signal Shapes & Labels
+plotshape(buySignal, title="🚀 BUY SCALP", style=shape.triangleup, location=location.belowbar, color=color.rgb(46, 204, 113), size=size.normal)
+plotshape(sellSignal, title="📉 EXIT / SELL SCALP", style=shape.triangledown, location=location.abovebar, color=color.rgb(231, 76, 60), size=size.normal)
 
 if buySignal
-    label.new(bar_index, low - (ta.atr(14) * 0.6), "🚀 BUY SCALP\nOTE 0.705-0.886", color=color.rgb(46, 204, 113), textcolor=color.white, style=label.style_label_up, size=size.small)
+    label.new(bar_index, low - (ta.atr(14) * 0.6), "🚀 BUY SCALP\nSL: $" + str.tostring(math.round(fib886, 2)), color=color.rgb(46, 204, 113), textcolor=color.white, style=label.style_label_up, size=size.small)
 
 if sellSignal
-    label.new(bar_index, high + (ta.atr(14) * 0.6), "📉 SELL SCALP\nOTE Premium", color=color.rgb(231, 76, 60), textcolor=color.white, style=label.style_label_down, size=size.small)
+    label.new(bar_index, high + (ta.atr(14) * 0.6), "📉 EXIT / TAKE PROFIT", color=color.rgb(231, 76, 60), textcolor=color.white, style=label.style_label_down, size=size.small)
 
 // ── LIVE ROBBINS CUP DASHBOARD TABLE ──
 var table dash = table.new(position.top_right, 2, 6, bgcolor=color.rgb(20, 24, 35, 10), border_width=1, border_color=color.rgb(44, 62, 80))
@@ -141,14 +132,14 @@ if showDashboard and barstate.islast
     table.cell(dash, 0, 1, "GEX Volatility Regime", text_color=color.white, text_size=size.small)
     table.cell(dash, 1, 1, isPositiveGex ? "POSITIVE (SCALP 🟢)" : "NEGATIVE (EXPANSION 🔴)", bgcolor=isPositiveGex ? color.rgb(46, 204, 113, 30) : color.rgb(231, 76, 60, 30), text_color=color.white, text_size=size.small)
 
-    table.cell(dash, 0, 2, "OTE Zone Status", text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 2, inBullOte ? "BULL OTE (0.705-0.886 🎯)" : inBearOte ? "BEAR OTE (PREMIUM 🔴)" : "OUTSIDE OTE ⚪", bgcolor=inBullOte ? color.rgb(46, 204, 113, 30) : inBearOte ? color.rgb(231, 76, 60, 30) : color.rgb(127, 140, 141, 30), text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 2, "OTE Discount Zone", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 2, inBullOte ? "ACTIVE (DISCOUNT 🎯)" : "OUTSIDE OTE ⚪", bgcolor=inBullOte ? color.rgb(46, 204, 113, 30) : color.rgb(127, 140, 141, 30), text_color=color.white, text_size=size.small)
 
     table.cell(dash, 0, 3, "0.886 Line in Sand", text_color=color.white, text_size=size.small)
     table.cell(dash, 1, 3, "$" + str.tostring(math.round(fib886, 2)), bgcolor=is886Invalidated ? color.rgb(231, 76, 60, 50) : color.rgb(52, 73, 94, 30), text_color=is886Invalidated ? color.red : color.white, text_size=size.small)
 
     table.cell(dash, 0, 4, "CVD Delta Absorption", text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 4, isBullishAbsorption ? "BUYER ABSORPTION ⚡" : isBearishAbsorption ? "SELLER ABSORPTION 🔻" : "NEUTRAL ⚪", bgcolor=isBullishAbsorption ? color.rgb(46, 204, 113, 30) : isBearishAbsorption ? color.rgb(231, 76, 60, 30) : color.rgb(127, 140, 141, 30), text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 4, isBullishAbsorption ? "BUYER ABSORPTION ⚡" : "NEUTRAL ⚪", bgcolor=isBullishAbsorption ? color.rgb(46, 204, 113, 30) : color.rgb(127, 140, 141, 30), text_color=color.white, text_size=size.small)
 
     table.cell(dash, 0, 5, "2-Loss Tilt Breaker", text_color=color.white, text_size=size.small)
     table.cell(dash, 1, 5, "ACTIVE (0/2 LOSSES 🛡️)", bgcolor=color.rgb(46, 204, 113, 30), text_color=color.white, text_size=size.small)
