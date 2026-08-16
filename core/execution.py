@@ -504,15 +504,15 @@ def run_strategy_cycle():
     #   - Lot Size: 0.05 Lots (5 oz of Gold)
     #   - Max Risk: $5.00  | Stop Loss Distance: $1.00 Gold Price Points
     # ── 4-TIER INSTITUTIONAL ACCOUNT RISK SCALING ENGINE ──
-    # Tier 1: $100k Prop/Inst Account (Balance >= $50,000) -> $500 Daily Loss Cap
+    # Tier 1: $100k Prop/Inst Account (Balance >= $50,000) -> $1,000 Daily Loss Cap ($100 Risk/Trade)
     # Tier 2: $25k Futures Account ($10,000 <= Balance < $50,000) -> $250 Daily Loss Cap (50% of $500 hard breach!)
     # Tier 3: $5k Standard Account ($2,500 <= Balance < $10,000) -> $150 Daily Loss Cap
     # Tier 4: $1k Micro Account (Balance < $2,500) -> $25 Daily Loss Cap
     if cash_balance >= 50000.0:
-        calculated_qty = 0.10
-        actual_max_risk = 50.00
+        calculated_qty = 0.20
+        actual_max_risk = 100.00
         price_stop_distance = 5.00
-        effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "500.0"))
+        effective_daily_loss_limit = float(os.getenv("HARD_DAILY_LOSS_LIMIT", "1000.0"))
     elif cash_balance >= 10000.0:
         calculated_qty = 0.08
         actual_max_risk = 25.00
