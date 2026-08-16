@@ -31,7 +31,11 @@ def generate_chart_image_png(symbol: str = "GC=F", asset_display: str = "Gold (X
         if df.empty or len(df) < 20:
             return ""
 
-        closes = df['Close'].dropna()
+        close_series = df['Close']
+        if isinstance(close_series, pd.DataFrame):
+            closes = close_series.iloc[:, 0].dropna()
+        else:
+            closes = close_series.dropna()
 
         # Dark Mode Styling
         plt.style.use('dark_background')
@@ -45,8 +49,8 @@ def generate_chart_image_png(symbol: str = "GC=F", asset_display: str = "Gold (X
         ma20 = closes.rolling(20).mean()
         ax.plot(ma20.index, ma20.values, color='#FF007F', linewidth=1.5, linestyle='--', label='15m Trend HMA')
 
-        curr_p = float(closes.iloc[-1])
-        first_p = float(closes.iloc[0])
+        curr_p = float(closes.iloc[-1].item() if hasattr(closes.iloc[-1], "item") else closes.iloc[-1])
+        first_p = float(closes.iloc[0].item() if hasattr(closes.iloc[0], "item") else closes.iloc[0])
         chg = ((curr_p - first_p) / first_p) * 100.0
         sig = "BUY LONG 🚀" if chg >= 0 else "SELL SHORT 📉"
 
