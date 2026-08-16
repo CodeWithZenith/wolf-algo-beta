@@ -270,12 +270,7 @@ def handle_discord_command(command_str: str) -> str:
 
     # 14. AUTOMATED VISUAL SIGNAL CHART GENERATOR COMMAND
     elif any(k in cmd for k in ["chart", "visual", "candles"]):
-        try:
-            from core.chart_generator import generate_chart_image_png
-            generate_chart_image_png("GC=F", "Gold (XAUUSD)")
-            return "📈 **WOLF ALGO REAL-TIME TECHNICAL CHART GENERATED 🖼️**"
-        except Exception as e:
-            return f"❌ Failed to generate chart: {e}"
+        return None
 
     return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart"
 
