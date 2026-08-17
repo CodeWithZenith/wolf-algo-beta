@@ -342,11 +342,15 @@ class RobbinsCupEngine:
         fib_618 = swing_high - (0.618 * range_dist)
         fib_705 = swing_high - (0.705 * range_dist)
         fib_788 = swing_high - (0.788 * range_dist)
-        fib_886 = swing_high - (0.886 * range_dist)
-
         # 0.886 Fib is Chris Creamer's Line in the Sand!
-        invalidated_below_886 = curr_close < fib_886
-        in_bull_ote = (fib_886 <= curr_close <= fib_705) and not invalidated_below_886
+        invalidated_below_886 = curr_close < (fib_886 - (0.001 * curr_close))
+        
+        # Check if current close OR any candle in the last 15 bars swept down near fib_886
+        low_vals = np.ravel(low_s.values)[-15:] if len(low_s) >= 15 else np.ravel(low_s.values)
+        min_recent_low = float(low_vals.min())
+        recent_swept_886 = min_recent_low <= (fib_705 + (0.002 * curr_close)) and (min_recent_low >= (fib_886 - (0.002 * curr_close)))
+        
+        in_bull_ote = (recent_swept_886 or (fib_886 <= curr_close <= fib_705)) and not invalidated_below_886
 
         return {
             "in_ote_zone": in_bull_ote,
