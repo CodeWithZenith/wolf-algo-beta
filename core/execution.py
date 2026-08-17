@@ -731,12 +731,12 @@ def run_strategy_cycle():
             f"• **Position Size:** `{calculated_qty}` lots\n"
             f"• **Entry Price:** `${intraday_close:.2f}`\n"
             f"• **Stop Loss Price:** `${stop_loss_price:.2f}` (-${price_stop_distance:.2f} price points | Max Risk: -${actual_max_risk:.2f})\n"
-            f"• **Take Profit Price:** `${take_profit_price:.2f}` (+${price_stop_distance * 2.5:.2f} price points | Target: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})"
+            f"• **Take Profit Price:** `${take_profit_price:.2f}` (+${price_stop_distance * 2.5:.2f} price points | Target: +${calculated_qty * 100.0 * (price_stop_distance * 2.5):.2f})"
         )
         print(f"✅ Placed BUY order for {calculated_qty} lots of {SYMBOL}:")
         print(f"   • Entry Price: ${intraday_close:.2f}")
         print(f"   • Absolute Stop Loss: ${stop_loss_price:.2f} (EXACTLY -${price_stop_distance:.2f} below entry | Max Risk: -${actual_max_risk:.2f})")
-        print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
+        print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY +${price_stop_distance * 2.5:.2f} above entry | Target Profit: +${calculated_qty * 100.0 * (price_stop_distance * 2.5):.2f})")
         send_discord_alert("🚀 Trade Opened", msg_details, color=0x2ECC71)
 
         # Record to Persistent SQLite Trade Database
@@ -819,12 +819,12 @@ def run_strategy_cycle():
             f"• **Position Size:** `{calculated_qty}` lots\n"
             f"• **Entry Price:** `${intraday_close:.2f}`\n"
             f"• **Stop Loss Price:** `${stop_loss_price:.2f}` (+${price_stop_distance:.2f} price points | Max Risk: -${actual_max_risk:.2f})\n"
-            f"• **Take Profit Price:** `${take_profit_price:.2f}` (-${price_stop_distance * 2.5:.2f} price points | Target: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})"
+            f"• **Take Profit Price:** `${take_profit_price:.2f}` (-${price_stop_distance * 2.5:.2f} price points | Target: +${calculated_qty * 100.0 * (price_stop_distance * 2.5):.2f})"
         )
         print(f"✅ Placed SELL order for {calculated_qty} lots of {SYMBOL}:")
         print(f"   • Entry Price: ${intraday_close:.2f}")
         print(f"   • Absolute Stop Loss: ${stop_loss_price:.2f} (EXACTLY +${price_stop_distance:.2f} above entry | Max Risk: -${actual_max_risk:.2f})")
-        print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY -${price_stop_distance * 2.5:.2f} below entry | Target Profit: +${calculated_qty * contract_size * (price_stop_distance * 2.5):.2f})")
+        print(f"   • Absolute Take Profit: ${take_profit_price:.2f} (EXACTLY -${price_stop_distance * 2.5:.2f} below entry | Target Profit: +${calculated_qty * 100.0 * (price_stop_distance * 2.5):.2f})")
         send_discord_alert("📉 Short Trade Opened", msg_details, color=0xE74C3C)
 
     elif has_open_position:
