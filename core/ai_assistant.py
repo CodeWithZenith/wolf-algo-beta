@@ -15,13 +15,14 @@ from core.robbins_cup_engine import robbins_cup_engine
 class AITradingDeskAssistant:
     """
     AI Trading Desk Conversational Assistant.
-    Analyzes live market structure, GEX, OTE zones, and account risk state to answer Discord user questions.
+    Analyzes live market structure, GEX, OTE zones, and account risk state to answer Discord user questions
+    in natural, friendly, expert trading dialogue.
     """
 
     @staticmethod
     def answer_user_query(query_str: str) -> str:
         """
-        Parses user's Discord query, fetches live market & account context, and returns an institutional AI breakdown.
+        Parses user's Discord query, fetches live market & account context, and returns a natural conversational AI response.
         """
         q = query_str.strip().lower()
 
@@ -51,68 +52,70 @@ class AITradingDeskAssistant:
             flip_lvl = gex_data.get("gamma_flip_level", 0.0)
             is_above_flip = gex_data.get("price_above_gamma_flip", True)
 
-            ote_500 = ote_data.get("ote_level_500", 0.0)
             ote_705 = ote_data.get("ote_level_705", 0.0)
             ote_886 = ote_data.get("ote_level_886", 0.0)
             in_ote = ote_data.get("in_ote_zone", False)
 
-            curr_price = ote_data.get("swing_high", 0.0)
+            # 2. Conversational Dialogue Generator (Natural Pair-Trading Persona)
+            if any(k in q for k in ["hello", "hi", "hey", "sup", "yo"]):
+                return (
+                    f"Hey! 🐺 Wolf Algo AI Trading Desk here! I'm actively monitoring live orderflow across Gold, NQ, ES, Dow, and BTC.\n\n"
+                    f"Right now on **{target_name}**, we are in `{regime}` mode (Score: {score:.1f}/100) with Gamma Flip at **${flip_lvl:,.2f}**.\n"
+                    f"What symbol or setup do you want to bounce ideas on right now?"
+                )
 
-            # 2. Formulate Conversational AI Brain Response
-            lines = [
-                f"🧠 **WOLF ALGO AI TRADING DESK ANALYSIS** (`{target_name}`)",
-                f"```text",
-                f"User Question: '{query_str}'",
-                f"-----------------------------------------------------------------",
-                f"Live Market Context:",
-                f"• GEX Volatility Regime : {regime} ({score:.1f}/100)",
-                f"• Weekly Call Wall (Resistance): ${call_w:,.2f}",
-                f"• Weekly Put Wall (Support)    : ${put_w:,.2f}",
-                f"• Gamma Flip Zone (Line in Sand): ${flip_lvl:,.2f} ({'ABOVE 🟢' if is_above_flip else 'BELOW 🔴'})",
-                f"• 0.705 OTE Sweet Spot         : ${ote_705:,.2f}",
-                f"• 0.886 Line in the Sand       : ${ote_886:,.2f}",
-                f"-----------------------------------------------------------------",
-                f"AI TRADING DESK VERDICT & ACTIONABLE PLAYBOOK:"
-            ]
-
-            if any(k in q for k in ["should i buy", "long", "take buy"]):
+            if any(k in q for k in ["should i buy", "long", "take buy", "buy nq", "buy gold"]):
                 if is_above_flip and (in_ote or "POSITIVE" in regime):
-                    lines.append(f"🟢 **RECOMMENDATION: APPROVED BUY SETUP (HIGH CONFLUENCE)**")
-                    lines.append(f"Price is sitting above the Gamma Flip Zone (${flip_lvl:,.2f}) with Positive Gamma.")
-                    lines.append(f"• **Entry Strategy:** Buy Long on Wolf Algo V1 green flip near ${ote_705:,.2f}.")
-                    lines.append(f"• **Stop Loss:** Strict SL at ${ote_886:,.2f} (0.886 Line in Sand).")
-                    lines.append(f"• **Target:** Target 1:1 TP1, 2:1 TP2, & lock BE @ +0.35 RR in 60s.")
+                    return (
+                        f"🟢 **That's an A+ Buy Setup on {target_name}!**\n\n"
+                        f"Here is why I like it:\n"
+                        f"1. **Market Structure:** Price is sitting ABOVE our Gamma Flip Zone (**${flip_lvl:,.2f}**) in `{regime}` mode.\n"
+                        f"2. **Wholesale Pricing:** We are near the 0.705–0.886 OTE Wholesale Discount zone (**${ote_705:,.2f} – ${ote_886:,.2f}**).\n"
+                        f"3. **Execution Plan:** Enter when **Wolf Algo V1** flips green. Set SL right below the 0.886 Line in the Sand (**${ote_886:,.2f}**).\n"
+                        f"4. **The Law:** Lock Breakeven @ +0.35 RR in 60s, then ratchet SL to TP1, TP2, and trail TP3!"
+                    )
                 else:
-                    lines.append(f"⚠️ **RECOMMENDATION: EXERCISE CAUTION ON LONGS**")
-                    lines.append(f"Price is testing under Gamma Flip or in Negative Gamma expansion. Wait for price to sweep ${ote_886:,.2f} line in sand first!")
+                    return (
+                        f"⚠️ **I'd exercise caution on Longs right now for {target_name}.**\n\n"
+                        f"Price is currently testing under our Gamma Flip Zone (**${flip_lvl:,.2f}**). "
+                        f"I'd wait for price to sweep down near our 0.886 Line in the Sand (**${ote_886:,.2f}**) and print a clean **Wolf Algo V1 Green Flip 🚀** before pulling the trigger!"
+                    )
 
-            elif any(k in q for k in ["short", "sell", "take short"]):
+            if any(k in q for k in ["short", "sell", "take short"]):
                 if not is_above_flip or "NEGATIVE" in regime:
-                    lines.append(f"🔴 **RECOMMENDATION: APPROVED SHORT SETUP**")
-                    lines.append(f"Price is below Gamma Flip (${flip_lvl:,.2f}) or in Negative Gamma breakout regime.")
-                    lines.append(f"• **Entry Strategy:** Short Sell when Wolf Algo V1 flips red at Call Wall resistance (${call_w:,.2f}).")
-                    lines.append(f"• **Stop Loss:** SL above Call Wall (${call_w:,.2f}).")
+                    return (
+                        f"🔴 **That Short Setup has strong institutional backing on {target_name}!**\n\n"
+                        f"Price is below the Gamma Flip Zone (**${flip_lvl:,.2f}**) in Negative Gamma expansion mode. "
+                        f"Enter when Wolf Algo V1 flips red at Call Wall resistance (**${call_w:,.2f}**) and target the Put Wall support (**${put_w:,.2f}**)!"
+                    )
                 else:
-                    lines.append(f"⚠️ **RECOMMENDATION: CAUTION ON COUNTER-TREND SHORTS**")
-                    lines.append(f"GEX is Positive (Mean-Reversion). Shorts have tight profit margins; wait for top resistance rejection!")
+                    return (
+                        f"⚠️ **Watch out on counter-trend shorts right now.**\n\n"
+                        f"GEX is Positive on {target_name} ({score:.1f}/100), meaning dealers are buying dips. "
+                        f"Unless price hits top Call Wall resistance (**${call_w:,.2f}**) and rejects, counter-trend shorts have tight profit margins!"
+                    )
 
-            elif any(k in q for k in ["level", "wall", "where", "support", "resistance"]):
-                lines.append(f"📊 **KEY INSTITUTIONAL LEVELS FOR {target_name.upper()}:**")
-                lines.append(f"1. **Major Resistance (Call Wall):** ${call_w:,.2f}")
-                lines.append(f"2. **Gamma Flip Boundary:** ${flip_lvl:,.2f}")
-                lines.append(f"3. **0.705 OTE Sweet Spot:** ${ote_705:,.2f}")
-                lines.append(f"4. **0.886 Line in Sand Support:** ${ote_886:,.2f}")
-                lines.append(f"5. **Major Support (Put Wall):** ${put_w:,.2f}")
+            if any(k in q for k in ["level", "wall", "where", "support", "resistance"]):
+                return (
+                    f"📊 **Here are the key institutional levels for {target_name.upper()}:**\n\n"
+                    f"• 🏰 **Call Wall (Major Resistance):** `${call_w:,.2f}`\n"
+                    f"• ⚖️ **Gamma Flip Zone (Line in Sand):** `${flip_lvl:,.2f}` ({'ABOVE 🟢' if is_above_flip else 'BELOW 🔴'})\n"
+                    f"• 🎯 **0.705 OTE Sweet Spot:** `${ote_705:,.2f}`\n"
+                    f"• 🛑 **0.886 Line in Sand Support:** `${ote_886:,.2f}`\n"
+                    f"• 🛡️ **Put Wall (Major Support):** `${put_w:,.2f}`"
+                )
 
-            else:
-                lines.append(f"⚡ **STRATEGY SYNOPSIS:**")
-                lines.append(f"Market is in {regime} mode. Positive GEX favors buying dips at OTE Wholesale Discount (${ote_705:,.2f} - ${ote_886:,.2f}).")
-                lines.append(f"Always wait for 0.886 Line in Sand sweeps + Wolf Algo V1 green flip confirmation!")
+            # Default Conversational Trading Advice
+            return (
+                f"🧠 **Wolf Algo AI Desk Analysis for {target_name}:**\n\n"
+                f"Market is currently in `{regime}` mode ({score:.1f}/100) with Gamma Flip at **${flip_lvl:,.2f}**.\n\n"
+                f"**Our Trading Playbook:**\n"
+                f"• Wholesale Buy Zone: **${ote_705:,.2f} – ${ote_886:,.2f}**\n"
+                f"• 0.886 Invalidation Line: **${ote_886:,.2f}**\n"
+                f"• Call Wall Resistance: **${call_w:,.2f}**\n\n"
+                f"Whenever price sweeps the 0.886 Line in the Sand and **Wolf Algo V1 flips green**, that is our A+ high-probability entry! What setup are you looking at right now?"
+            )
 
-            lines.append("```")
-            lines.append("⚡ **WOLF ALGO AI DESK:** `ONLINE & ACTIVE 24/7 🟢`\n*Ask me anything about market levels, trade ideas, or risk rules!*")
-
-            return "\n".join(lines)
         except Exception as e:
             return f"🤖 **Wolf Algo AI Assistant:** I analyzed your question '{query_str}', but encountered a data lookup error: {e}"
 
