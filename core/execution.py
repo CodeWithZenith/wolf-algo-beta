@@ -562,18 +562,12 @@ def run_strategy_cycle():
         is_line_in_sand_bounce = False
         is_bearish_ote_premium = False
 
-    # Confluence Gating (1-MINUTE LINE IN THE SAND SWEEP OVERRIDE)
-    # When price is in the 0.705-0.886 OTE Discount Zone (is_line_in_sand_bounce),
-    # WE DO NOT WAIT FOR LAGGING 5M HMA! The 1-minute 0.886 Line in the Sand bounce is 100% SUFFICIENT!
-    if is_line_in_sand_bounce:
-        is_mtf_bullish_confluence = True
-    else:
-        is_mtf_bullish_confluence = is_intraday_bullish and (is_macro_bullish or prob_score >= 60)
-
-    if is_bearish_ote_premium:
-        is_mtf_short_confluence = True
-    else:
-        is_mtf_short_confluence = is_intraday_bearish and is_wolf_osc_bearish and prob_score >= 65
+    # ── STRICT PATIENCE & RE-ENTRY LAW (NO CHOP CONTINUATION ENTRIES AT THE TOP!) ──
+    # User Directive: "We wait for price to go back in the sand (0.886 OTE Discount) and then Wolf Algo V1
+    # to give us a buy entry again, otherwise we risk getting caught in chop!"
+    # Long entries are ONLY permitted when price is inside the 0.705-0.886 OTE Discount Zone (is_line_in_sand_bounce)!
+    is_mtf_bullish_confluence = is_line_in_sand_bounce and is_wolf_osc_bullish and prob_approved
+    is_mtf_short_confluence = is_bearish_ote_premium and is_wolf_osc_bearish and prob_approved
 
     print(f"--- Autonomous Intraday Session Execution for {SYMBOL} ---")
     print(f"Current Price: ${intraday_close:.2f} | Live Regime: {regime_name}")
