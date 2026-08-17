@@ -912,12 +912,22 @@ def run_strategy_cycle():
             else:
                 new_sl_price = None
 
-            if new_sl_price and hasattr(positions, "iterrows") and len(positions) > 0:
-                pos_row = positions.iloc[0]
-                pos_id = pos_row.get('id') if 'id' in pos_row else pos_row.get('positionId')
-                if pos_id:
+            if new_sl_price:
+                # Extract position ID regardless of data type (DataFrame, dict, or list)
+                target_pos_id = None
+                if hasattr(positions, "iterrows") and len(positions) > 0:
+                    pos_row = positions.iloc[0]
+                    target_pos_id = pos_row.get('id') if 'id' in pos_row else pos_row.get('positionId')
+                elif isinstance(positions, dict):
+                    pos_list = positions.get('positions', [])
+                    if pos_list and len(pos_list) > 0:
+                        target_pos_id = pos_list[0].get('id') or pos_list[0].get('positionId')
+                elif isinstance(positions, list) and len(positions) > 0:
+                    target_pos_id = positions[0].get('id') if isinstance(positions[0], dict) and 'id' in positions[0] else positions[0].get('positionId')
+
+                if target_pos_id:
                     try:
-                        tl.modify_position(position_id=pos_id, stop_loss=new_sl_price)
+                        tl.modify_position(position_id=target_pos_id, stop_loss=float(new_sl_price))
                         print(f"{ratchet_label} -> Ratcheted On-Chart SL to ${new_sl_price:.2f} via TradeLocker API!")
                     except Exception as err:
                         print(f"⚠️ Could not modify position T.SL: {err}")
