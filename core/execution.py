@@ -870,24 +870,44 @@ def run_strategy_cycle():
                         msg_exit = f"⚡ **POSITION CLOSED (SUB-SECOND TICK GUARD)**\n• **Symbol:** `{SYMBOL}`\n• **Peak Tick High:** `${peak_tick_high:.2f}`\n• **Current Tick:** `${latest_tick_price:.2f}`\n• **Reason:** Sub-30s pullback protected."
                         print(f"Position {pos_id} closed successfully.")
                         send_discord_alert("⚡ Position Closed (Sub-Second Tick Guard)", msg_exit, color=0x3498DB)
-            elif isinstance(positions, dict):
-                for p in positions.get('positions', []):
-                    pos_id = p.get('id') or p.get('positionId')
-                    if pos_id:
-                        tl.close_position(position_id=pos_id)
         else:
-            # Transmit API call to ratchet TradeLocker's native on-chart T.SL line automatically!
-            if tick_peak_gain >= 5.0 and hasattr(positions, "iterrows") and len(positions) > 0:
+            # ── 3-TIER TARGET RATCHET LAW (TP1 -> SL AT TP1 | TP2 -> SL AT TP2 | TP3 -> TIGHT TRAILING STOP) ──
+            risk_dist = abs(entry_price_val - (entry_price_val - price_stop_distance))
+            tp1_price = entry_price_val + (1.0 * risk_dist) if is_long_pos else entry_price_val - (1.0 * risk_dist)
+            tp2_price = entry_price_val + (2.0 * risk_dist) if is_long_pos else entry_price_val - (2.0 * risk_dist)
+            tp3_price = entry_price_val + (3.0 * risk_dist) if is_long_pos else entry_price_val - (3.0 * risk_dist)
+
+            # Check TP levels reached
+            hit_tp1 = (latest_tick_price >= tp1_price) if is_long_pos else (latest_tick_price <= tp1_price)
+            hit_tp2 = (latest_tick_price >= tp2_price) if is_long_pos else (latest_tick_price <= tp2_price)
+            hit_tp3 = (latest_tick_price >= tp3_price) if is_long_pos else (latest_tick_price <= tp3_price)
+
+            if hit_tp3:
+                # TP3 Hit: Tight Trailing Stop (Trail SL 0.50 points behind peak tick)
+                new_sl_price = round(latest_tick_price - 0.50, 2) if is_long_pos else round(latest_tick_price + 0.50, 2)
+                ratchet_label = "🎯🎯🎯 TP3 HIT: Ultra-Tight Trailing Stop Active!"
+            elif hit_tp2:
+                # TP2 Hit: Lock SL at TP2 Level!
+                new_sl_price = round(tp2_price, 2)
+                ratchet_label = "🎯🎯 TP2 HIT: Stop Loss Locked at TP2!"
+            elif hit_tp1:
+                # TP1 Hit: Lock SL at TP1 Level!
+                new_sl_price = round(tp1_price, 2)
+                ratchet_label = "🎯 TP1 HIT: Stop Loss Locked at TP1!"
+            elif tick_peak_gain >= 5.0:
+                # +0.35 RR Fast Breakeven Lock
+                new_sl_price = round(entry_price_val + 0.50, 2) if is_long_pos else round(entry_price_val - 0.50, 2)
+                ratchet_label = "🔒 Fast BE Lock Active"
+            else:
+                new_sl_price = None
+
+            if new_sl_price and hasattr(positions, "iterrows") and len(positions) > 0:
                 pos_row = positions.iloc[0]
                 pos_id = pos_row.get('id') if 'id' in pos_row else pos_row.get('positionId')
                 if pos_id:
                     try:
-                        if is_long_pos:
-                            new_sl_price = round(entry_price_val + max(0.50, (latest_tick_price - entry_price_val) * 0.50), 2)
-                        else:
-                            new_sl_price = round(entry_price_val - max(0.50, (entry_price_val - latest_tick_price) * 0.50), 2)
                         tl.modify_position(position_id=pos_id, stop_loss=new_sl_price)
-                        print(f"🔒 Ratcheted On-Chart T.SL to ${new_sl_price:.2f} via TradeLocker API!")
+                        print(f"{ratchet_label} -> Ratcheted On-Chart SL to ${new_sl_price:.2f} via TradeLocker API!")
                     except Exception as err:
                         print(f"⚠️ Could not modify position T.SL: {err}")
 
