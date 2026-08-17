@@ -304,7 +304,19 @@ def handle_discord_command(command_str: str) -> str:
         except Exception as e:
             return f"❌ Failed to run GEX report: {e}"
 
-    return "Unknown command. Supported: !status, !buy, !sell, !closeall, !stop, !start, !hold, top 10, top 20, !breadth, !report, !smc, !news, !prop, !chart, !quant, !gex"
+    # 16. INTERACTIVE AI TRADING DESK CONVERSATION COMMAND
+    elif any(cmd.startswith(k) for k in ["!ask", "!ai", "!chat", "!think"]):
+        try:
+            from core.ai_assistant import ai_assistant
+            clean_q = command_str
+            for prefix in ["!ask", "!ai", "!chat", "!think"]:
+                if clean_q.lower().startswith(prefix):
+                    clean_q = clean_q[len(prefix):].strip()
+            return ai_assistant.answer_user_query(clean_q if clean_q else command_str)
+        except Exception as e:
+            return f"🤖 AI Trading Desk Assistant error: {e}"
+
+    return "Unknown command. Supported: !ask, !ai, !gex, !status, !buy, !sell, !closeall, !stop, !start, !hold, !breadth, !report, !smc, !news, !prop, !chart, !quant"
 
 
 if __name__ == "__main__":
