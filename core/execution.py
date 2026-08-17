@@ -539,7 +539,7 @@ def run_strategy_cycle():
     # Exception Days: Dead Chop Squeeze or High-Impact News Blackout -> 0 TRADES PLACED (STAY OUT).
     from core.ai_scorer import ai_scorer, hmm_classifier
     adaptive_thresh, regime_name, regime_metrics = ai_scorer.evaluate_market_regime(
-        df_intraday=history if hasattr(history, "iloc") else pd.DataFrame(),
+        df_intraday=df_intraday if hasattr(df_intraday, "iloc") else pd.DataFrame(),
         current_atr=current_atr,
         is_macro_bullish=is_macro_bullish,
         is_intraday_bullish=is_intraday_bullish
@@ -554,10 +554,11 @@ def run_strategy_cycle():
     # 2. BEARISH PREMIUM: Price reaches Top OTE Premium (0.114-0.295 Fib) + Wolf Algo V1 flips red -> INSTANT HIGH-PROBABILITY SHORT!
     try:
         from core.robbins_cup_engine import robbins_cup_engine
-        ote_status = robbins_cup_engine.check_ote_discount_zone(history if hasattr(history, "iloc") else pd.DataFrame())
+        ote_status = robbins_cup_engine.check_ote_discount_zone(df_intraday if hasattr(df_intraday, "iloc") else pd.DataFrame())
         is_line_in_sand_bounce = ote_status.get("in_ote_zone", False) and not ote_status.get("invalidated_below_886", False)
         is_bearish_ote_premium = is_intraday_bearish and not is_macro_bullish
-    except Exception:
+    except Exception as e:
+        print(f"⚠️ Robbins Cup OTE evaluation warning: {e}")
         is_line_in_sand_bounce = False
         is_bearish_ote_premium = False
 
